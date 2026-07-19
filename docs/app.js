@@ -18,6 +18,13 @@ const smile = document.getElementById("smile");
 const masteredCountEl = document.getElementById("masteredCount");
 const learningCountEl = document.getElementById("learningCount");
 const modelSelect = document.getElementById("modelSelect");
+const voiceSelect = document.getElementById("voiceSelect");
+const topicChipsEl = document.getElementById("topicChips");
+const wordsToggle = document.getElementById("wordsToggle");
+const wordsCaret = document.getElementById("wordsCaret");
+const wordsPanel = document.getElementById("wordsPanel");
+const masteredList = document.getElementById("masteredList");
+const learningList = document.getElementById("learningList");
 
 // 3D avatar (Ready Player Me + three.js). If WebGL or the model fails,
 // avatar3d stays null and the built-in SVG avatar keeps working.
@@ -147,6 +154,10 @@ Speaking style rules:
 - Plain speakable prose only. Never use lists, headings, markdown, emoji, symbols, parentheses, or abbreviations that sound wrong when read aloud.
 - Speak simply and clearly for a language learner. Prefer short sentences and everyday grammar.
 - End most replies with one easy follow-up question so the conversation keeps flowing, and choose topics that invite the user to use your target words.
+- Guide the conversation actively so the learner never wonders what to say. Ask concrete questions rather than open-ended ones, and when the learner gives a very short answer or seems stuck, offer two simple choices to pick from, like: do you like tea or coffee more?
+
+Conversation topic:
+- You may receive a CONVERSATION TOPIC. Open by naming it in a natural way, keep the chat anchored to it, and bring the conversation gently back when it drifts. If the topic is "surprise me", pick one everyday topic yourself, tell the learner what you two will talk about, and stay with it.
 
 Vocabulary policy:
 - Each turn you receive a list of TARGET WORDS. These are the most common English words the learner has not yet used themselves. Give them very high priority: weave several of them naturally into every reply, and steer the topic so the learner is likely to say them back to you.
@@ -185,7 +196,10 @@ async function agentReply(userText) {
 
   const system = [
     { type: "text", text: STABLE_SYSTEM, cache_control: { type: "ephemeral" } },
-    { type: "text", text: vocabBlock() },
+    {
+      type: "text",
+      text: vocabBlock() + (selectedTopic ? `\nCONVERSATION TOPIC: ${selectedTopic}.` : ""),
+    },
   ];
 
   const personalKey = localStorage.getItem("ivy_api_key");
@@ -251,6 +265,7 @@ async function sendToAgent(transcript) {
   const reply = await agentReply(userText);
   masteredCountEl.textContent = masteredWords().length;
   learningCountEl.textContent = learningWords().length;
+  if (!wordsPanel.hidden) refreshWordLists(); // keep the open panel live
   return reply;
 }
 
@@ -302,29 +317,67 @@ function stopMouthAnimation() {
 // ---------------------------------------------------------------------------
 // Text to speech
 // ---------------------------------------------------------------------------
-function pickVoice() {
-  const voices = speechSynthesis.getVoices();
-  if (!voices.length) return null;
-  const preferredNames = [
-    "Microsoft Aria Online (Natural) - English (United States)",
-    "Microsoft Jenny Online (Natural) - English (United States)",
-    "Google US English",
-    "Microsoft Zira - English (United States)",
-  ];
-  for (const name of preferredNames) {
-    const v = voices.find((v) => v.name === name);
-    if (v) return v;
-  }
-  return (
-    voices.find((v) => v.lang === "en-US") ||
-    voices.find((v) => v.lang.startsWith("en")) ||
-    voices[0]
-  );
+// Rank browser voices by how human they sound. Edge's "Online (Natural)"
+// neural voices are far better than anything else; Google's cloud voices come
+// next; plain local system voices (Zira, David…) are the robotic last resort.
+function voiceScore(v) {
+  let score = 0;
+  if (/Online \(Natural\)|Natural/i.test(v.name)) score += 100;
+  if (/Aria|Jenny|Sonia|Libby|Michelle/i.test(v.name)) score += 10;
+  if (/^Google/i.test(v.name)) score += 50;
+  if (!v.localService) score += 20; // cloud voices are consistently better
+  if (v.lang === "en-US") score += 8;
+  else if (v.lang.startsWith("en")) score += 4;
+  else score -= 100;
+  return score;
 }
 
-speechSynthesis.onvoiceschanged = () => {
+function englishVoices() {
+  return speechSynthesis
+    .getVoices()
+    .filter((v) => v.lang.startsWith("en"))
+    .sort((a, b) => voiceScore(b) - voiceScore(a));
+}
+
+function pickVoice() {
+  const voices = englishVoices();
+  if (!voices.length) return speechSynthesis.getVoices()[0] || null;
+  const savedName = localStorage.getItem("ivy_voice");
+  return voices.find((v) => v.name === savedName) || voices[0];
+}
+
+function populateVoices() {
+  const voices = englishVoices();
+  if (!voices.length) return;
   preferredVoice = pickVoice();
-};
+  voiceSelect.innerHTML = "";
+  for (const v of voices) {
+    const opt = document.createElement("option");
+    opt.value = v.name;
+    // Trim the verbose vendor names down to something readable.
+    opt.textContent = v.name
+      .replace(/^Microsoft |^Google /, "")
+      .replace(" Online (Natural) - English", "")
+      .replace(" - English", "");
+    if (/Online \(Natural\)/.test(v.name)) opt.textContent += " ★";
+    voiceSelect.appendChild(opt);
+  }
+  if (preferredVoice) voiceSelect.value = preferredVoice.name;
+}
+
+speechSynthesis.onvoiceschanged = populateVoices;
+populateVoices();
+
+voiceSelect.addEventListener("change", () => {
+  localStorage.setItem("ivy_voice", voiceSelect.value);
+  preferredVoice = pickVoice();
+  // Quick audition so you hear the change immediately.
+  if (!running) {
+    speak("Hi, this is how I sound now.").then(() =>
+      setState(null, "Press start to begin talking"),
+    );
+  }
+});
 
 function speak(text) {
   return new Promise((resolve) => {
@@ -466,6 +519,67 @@ startBtn.addEventListener("click", () => {
 });
 
 stopBtn.addEventListener("click", () => stopConversation());
+
+// ---------------------------------------------------------------------------
+// Topic picker — gives the conversation a clear direction. "Surprise me"
+// lets Ivy choose and announce a topic herself.
+// ---------------------------------------------------------------------------
+const TOPICS = [
+  "Surprise me",
+  "Daily life",
+  "Food & cooking",
+  "Travel",
+  "Family & friends",
+  "Work & school",
+  "Hobbies & fun",
+  "Movies & music",
+];
+let selectedTopic = localStorage.getItem("ivy_topic") || TOPICS[0];
+if (!TOPICS.includes(selectedTopic)) selectedTopic = TOPICS[0];
+
+for (const topic of TOPICS) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "topic-chip" + (topic === selectedTopic ? " selected" : "");
+  chip.textContent = topic;
+  chip.addEventListener("click", () => {
+    selectedTopic = topic;
+    localStorage.setItem("ivy_topic", topic);
+    for (const c of topicChipsEl.children) {
+      c.classList.toggle("selected", c === chip);
+    }
+  });
+  topicChipsEl.appendChild(chip);
+}
+
+// ---------------------------------------------------------------------------
+// Expandable word lists — click the counters to see what's behind them.
+// ---------------------------------------------------------------------------
+function renderWordList(el, words) {
+  el.innerHTML = "";
+  if (!words.length) {
+    el.innerHTML = '<span class="empty">Nothing yet</span>';
+    return;
+  }
+  for (const w of words) {
+    const chip = document.createElement("span");
+    chip.className = "word-chip";
+    chip.textContent = w;
+    el.appendChild(chip);
+  }
+}
+
+function refreshWordLists() {
+  if (!currentUser) return;
+  renderWordList(masteredList, masteredWords());
+  renderWordList(learningList, learningWords());
+}
+
+wordsToggle.addEventListener("click", () => {
+  wordsPanel.hidden = !wordsPanel.hidden;
+  wordsCaret.innerHTML = wordsPanel.hidden ? "&#9662;" : "&#9652;";
+  if (!wordsPanel.hidden) refreshWordLists();
+});
 
 // ---------------------------------------------------------------------------
 // API key management — stored only in this browser.

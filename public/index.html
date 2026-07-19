@@ -64,17 +64,36 @@
 
     <div class="status" id="status">Press start to begin talking</div>
 
+    <div class="topic-row" id="topicRow" title="What should we talk about?">
+      <span class="topic-label">Talk about:</span>
+      <div class="topic-chips" id="topicChips"></div>
+    </div>
+
     <div class="controls">
       <button id="startBtn" class="primary">Start conversation</button>
       <button id="stopBtn" class="secondary" hidden>End conversation</button>
     </div>
 
     <div class="progress" id="progress" title="Mastered words were spoken twice; learning words once so far">
-      Words mastered: <span id="masteredCount">0</span> &middot; learning: <span id="learningCount">0</span>
+      <button id="wordsToggle" class="linklike words-toggle">
+        Words mastered: <span id="masteredCount">0</span> &middot; learning: <span id="learningCount">0</span>
+        <span class="caret" id="wordsCaret">&#9662;</span>
+      </button>
       <span class="user-chip" id="userChip" hidden>
         &middot; <span id="userName"></span>
         <button id="switchUserBtn" class="linklike" title="Practice as someone else">switch</button>
       </span>
+    </div>
+
+    <div class="words-panel" id="wordsPanel" hidden>
+      <div class="words-group">
+        <h3>Mastered</h3>
+        <div class="word-chips" id="masteredList"><span class="empty">Nothing yet — start talking!</span></div>
+      </div>
+      <div class="words-group">
+        <h3>Learning</h3>
+        <div class="word-chips" id="learningList"><span class="empty">Nothing yet</span></div>
+      </div>
     </div>
 
     <div class="model-row" title="Which Claude model powers Ivy">
@@ -84,6 +103,11 @@
         <option value="sonnet">Sonnet — balanced</option>
         <option value="opus">Opus — most capable</option>
       </select>
+    </div>
+
+    <div class="model-row" title="Which voice Ivy speaks with — voices come from your browser and system">
+      <label for="voiceSelect">Ivy's voice:</label>
+      <select id="voiceSelect"></select>
     </div>
 
     <p class="hint">Use Chrome or Edge. Speak after the chime when the ring turns green.</p>

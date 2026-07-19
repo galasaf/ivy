@@ -182,11 +182,15 @@ function masteredWords(profile) {
 }
 
 // Words spoken at least once but not yet mastered — shown as "learning".
-function learningCount(profile) {
+function learningWords(profile) {
   return WORD_FREQUENCY.filter((w) => {
     const c = profile.counts[w] || 0;
     return c > 0 && c < MASTERY_THRESHOLD;
-  }).length;
+  });
+}
+
+function learningCount(profile) {
+  return learningWords(profile).length;
 }
 
 // Resurfacing: mastered words the user hasn't spoken in a long time slowly
@@ -210,6 +214,10 @@ Speaking style rules:
 - Plain speakable prose only. Never use lists, headings, markdown, emoji, symbols, parentheses, or abbreviations that sound wrong when read aloud.
 - Speak simply and clearly for a language learner. Prefer short sentences and everyday grammar.
 - End most replies with one easy follow-up question so the conversation keeps flowing, and choose topics that invite the user to use your target words.
+- Guide the conversation actively so the learner never wonders what to say. Ask concrete questions rather than open-ended ones, and when the learner gives a very short answer or seems stuck, offer two simple choices to pick from, like: do you like tea or coffee more?
+
+Conversation topic:
+- You may receive a CONVERSATION TOPIC. Open by naming it in a natural way, keep the chat anchored to it, and bring the conversation gently back when it drifts. If the topic is "surprise me", pick one everyday topic yourself, tell the learner what you two will talk about, and stay with it.
 
 Vocabulary policy:
 - Each turn you receive a list of TARGET WORDS. These are the most common English words the learner has not yet used themselves. Give them very high priority: weave several of them naturally into every reply, and steer the topic so the learner is likely to say them back to you.
@@ -236,7 +244,7 @@ function vocabBlock(profile) {
   return lines.join("\n");
 }
 
-async function agentReply(user, userText) {
+async function agentReply(user, userText, topic) {
   user.conversation.push({ role: "user", content: userText });
   // Keep the history bounded so latency stays low for a voice loop.
   if (user.conversation.length > 30) user.conversation = user.conversation.slice(-30);
@@ -247,7 +255,12 @@ async function agentReply(user, userText) {
     system: [
       // Stable prefix first (cached), per-turn vocabulary after it.
       { type: "text", text: STABLE_SYSTEM, cache_control: { type: "ephemeral" } },
-      { type: "text", text: vocabBlock(user.profile) },
+      {
+        type: "text",
+        text:
+          vocabBlock(user.profile) +
+          (topic ? `\nCONVERSATION TOPIC: ${topic}.` : ""),
+      },
     ],
     messages: user.conversation,
   });
@@ -302,6 +315,8 @@ app.post("/api/chat", async (req, res) => {
   if (!user) return res.status(401).json({ error: "Not signed in." });
   try {
     const transcript = (req.body?.transcript || "").trim();
+    // Optional conversation topic chosen in the UI; kept short and plain.
+    const topic = String(req.body?.topic || "").replace(/[^\w &'-]/g, "").slice(0, 60);
     let newlyMastered = [];
 
     let userText;
@@ -313,7 +328,7 @@ app.post("/api/chat", async (req, res) => {
       userText = `Please greet me warmly and start a simple conversation. I just opened the app. My name is ${user.name}.`;
     }
 
-    const reply = await agentReply(user, userText);
+    const reply = await agentReply(user, userText, topic);
     res.json({
       reply,
       targetWords: currentTargetWords(user.profile),
@@ -335,11 +350,15 @@ app.post("/api/chat", async (req, res) => {
 app.get("/api/stats", (req, res) => {
   const user = currentUser(req);
   if (!user) return res.status(401).json({ error: "Not signed in." });
+  const mastered = masteredWords(user.profile);
+  const learning = learningWords(user.profile);
   res.json({
     targetWords: currentTargetWords(user.profile),
     reviewWords: reviewWords(user.profile),
-    masteredCount: masteredWords(user.profile).length,
-    learningCount: learningCount(user.profile),
+    masteredCount: mastered.length,
+    learningCount: learning.length,
+    masteredWords: mastered,
+    learningWords: learning,
     totalTracked: WORD_FREQUENCY.length,
   });
 });

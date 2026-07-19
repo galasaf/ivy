@@ -182,10 +182,18 @@ export async function createAvatar3D(container) {
     }, 700);
   }
 
+  // While speaking, occasionally punctuate a word with a tiny nod or brow
+  // raise, the way people naturally emphasize speech.
+  let nodUntil = 0;
+  let browUntil = 0;
+
   function speechBoundary(charIdx) {
     boundarySeen = true;
     const word = wordAt(charIdx || 0);
     if (word) queueWordVisemes(word, performance.now());
+    const now = performance.now();
+    if (Math.random() < 0.14) nodUntil = now + 240;
+    if (Math.random() < 0.08) browUntil = now + 420;
   }
 
   function speechEnd() {
@@ -195,6 +203,15 @@ export async function createAvatar3D(container) {
 
   const VISEME_NAMES = Object.values(LETTER_VISEME).filter((v, i, a) => a.indexOf(v) === i);
 
+  // How much each viseme opens the jaw: open vowels drop it a lot, closed
+  // consonants like P/B/M and S barely at all. Uniform jaw was a big part of
+  // why the mouth looked artificial.
+  const VISEME_JAW = {
+    viseme_aa: 0.55, viseme_E: 0.3, viseme_I: 0.2, viseme_O: 0.45, viseme_U: 0.25,
+    viseme_PP: 0.02, viseme_FF: 0.08, viseme_DD: 0.15, viseme_kk: 0.2,
+    viseme_CH: 0.12, viseme_SS: 0.05, viseme_nn: 0.12, viseme_RR: 0.18,
+  };
+
   function applyVisemes() {
     const now = performance.now();
     for (const name of VISEME_NAMES) morphTargets[name] = 0;
@@ -203,11 +220,21 @@ export async function createAvatar3D(container) {
     for (const v of visemeQueue) {
       if (now >= v.at) {
         const phase = (now - v.at) / v.dur; // 0..1 attack/decay envelope
-        const strength = Math.sin(Math.min(1, phase) * Math.PI) * 0.85;
+        const strength = Math.sin(Math.min(1, phase) * Math.PI) * 0.9;
         morphTargets[v.name] = Math.max(morphTargets[v.name] || 0, strength);
-        morphTargets.jawOpen = Math.max(morphTargets.jawOpen, strength * 0.25);
+        morphTargets.jawOpen = Math.max(
+          morphTargets.jawOpen,
+          strength * (VISEME_JAW[v.name] ?? 0.2),
+        );
       }
     }
+    // Lips round on O/U, press on P/B/M — co-articulation cues.
+    morphTargets.mouthPucker =
+      Math.max(morphTargets.viseme_O || 0, morphTargets.viseme_U || 0) * 0.5;
+    morphTargets.mouthPressLeft = (morphTargets.viseme_PP || 0) * 0.6;
+    morphTargets.mouthPressRight = (morphTargets.viseme_PP || 0) * 0.6;
+    // Word-emphasis brow raise scheduled from speechBoundary.
+    morphTargets.browInnerUp = now < browUntil ? 0.35 : 0;
   }
 
   // ---- conversation modes ------------------------------------------------
@@ -244,24 +271,30 @@ export async function createAvatar3D(container) {
       b.rotation.set(r.x + x, r.y + y, r.z + z);
     };
     const breathe = Math.sin(t * 1.4) * 0.012;
+    // Layered incommensurate sines read as organic drift instead of a
+    // metronome — heads are never perfectly still or perfectly periodic.
+    const driftX = Math.sin(t * 0.31) * 0.012 + Math.sin(t * 0.83) * 0.008;
+    const driftY = Math.sin(t * 0.47) * 0.02 + Math.sin(t * 1.13) * 0.008;
     if (mode === "listening") {
-      set(head, 0.04, 0.06, 0.05 + breathe);
+      set(head, 0.04 + driftX, 0.06 + driftY, 0.05 + breathe);
       set(neck, 0.02, 0.03, 0.02);
       set(eyeL, saccade.x, saccade.y, 0);
       set(eyeR, saccade.x, saccade.y, 0);
     } else if (mode === "thinking") {
-      set(head, -0.07, 0.12, -0.03 + breathe);
+      set(head, -0.07 + driftX, 0.12 + driftY, -0.03 + breathe);
       set(neck, -0.02, 0.05, 0);
       set(eyeL, -0.18, 0.12, 0);
       set(eyeR, -0.18, 0.12, 0);
     } else if (mode === "speaking") {
-      const bob = Math.sin(t * 2.6) * 0.02;
-      set(head, bob, Math.sin(t * 1.7) * 0.03, breathe);
-      set(neck, bob * 0.5, 0, 0);
+      // Word-emphasis nod scheduled from speechBoundary, on top of drift.
+      const nodPhase = Math.max(0, nodUntil - performance.now()) / 240;
+      const nod = Math.sin(nodPhase * Math.PI) * 0.045;
+      set(head, nod + driftX * 1.5, driftY * 1.5, breathe);
+      set(neck, nod * 0.5, 0, 0);
       set(eyeL, saccade.x * 0.5, saccade.y * 0.5, 0);
       set(eyeR, saccade.x * 0.5, saccade.y * 0.5, 0);
     } else {
-      set(head, breathe, Math.sin(t * 0.6) * 0.02, 0);
+      set(head, breathe + driftX, driftY, 0);
       set(spine, breathe * 0.4, 0, 0);
       set(eyeL, saccade.x, saccade.y, 0);
       set(eyeR, saccade.x, saccade.y, 0);
