@@ -29,6 +29,11 @@ const keyInput = document.getElementById("keyInput");
 const keyError = document.getElementById("keyError");
 const changeKeyBtn = document.getElementById("changeKeyBtn");
 
+// Optional shared-access proxy (see proxy/ivy-proxy.php in the repo): a PHP
+// endpoint that holds the owner's API key server-side behind a passphrase.
+// Leave empty to require every visitor to bring their own key.
+const PROXY_URL = "";
+
 const SpeechRecognition =
   window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -145,32 +150,57 @@ function vocabBlock() {
   return lines.join("\n");
 }
 
+function hasAccess() {
+  return Boolean(
+    localStorage.getItem("ivy_api_key") ||
+      (PROXY_URL && localStorage.getItem("ivy_passphrase")),
+  );
+}
+
 async function agentReply(userText) {
   conversation.push({ role: "user", content: userText });
   if (conversation.length > 30) conversation = conversation.slice(-30);
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": localStorage.getItem("ivy_api_key") || "",
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model: modelSelect.value,
-      max_tokens: 1024,
-      system: [
-        { type: "text", text: STABLE_SYSTEM, cache_control: { type: "ephemeral" } },
-        { type: "text", text: vocabBlock() },
-      ],
-      messages: conversation,
-    }),
-  });
+  const system = [
+    { type: "text", text: STABLE_SYSTEM, cache_control: { type: "ephemeral" } },
+    { type: "text", text: vocabBlock() },
+  ];
 
-  if (res.status === 401) {
-    showKeyOverlay("That API key was rejected. Please check it and try again.");
-    throw new Error("Your API key was rejected. Please enter it again.");
+  const personalKey = localStorage.getItem("ivy_api_key");
+  let res;
+  if (personalKey) {
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": personalKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: modelSelect.value,
+        max_tokens: 1024,
+        system,
+        messages: conversation,
+      }),
+    });
+  } else {
+    res = await fetch(PROXY_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        passphrase: localStorage.getItem("ivy_passphrase") || "",
+        model: modelSelect.value,
+        system,
+        messages: conversation,
+      }),
+    });
+  }
+
+  if (res.status === 401 || res.status === 403) {
+    const what = personalKey ? "API key" : "passphrase";
+    showKeyOverlay(`That ${what} was rejected. Please check it and try again.`);
+    throw new Error(`Your ${what} was rejected. Please enter it again.`);
   }
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));
@@ -383,7 +413,7 @@ startBtn.addEventListener("click", () => {
     setState(null, "This browser does not support speech recognition. Please use Chrome or Edge.");
     return;
   }
-  if (!localStorage.getItem("ivy_api_key")) {
+  if (!hasAccess()) {
     showKeyOverlay();
     return;
   }
@@ -400,6 +430,11 @@ stopBtn.addEventListener("click", () => stopConversation());
 // ---------------------------------------------------------------------------
 function showKeyOverlay(errorMessage) {
   stopConversation(true);
+  if (PROXY_URL) {
+    document.getElementById("keyHelp").innerHTML =
+      'Enter the <strong>shared passphrase</strong> if you were given one, or your own Anthropic API key (<a href="https://platform.claude.com" target="_blank" rel="noopener">get one here</a>). Either is stored only in this browser.';
+    keyInput.placeholder = "Passphrase or sk-ant-...";
+  }
   keyOverlay.hidden = false;
   keyError.hidden = !errorMessage;
   if (errorMessage) keyError.textContent = errorMessage;
@@ -408,13 +443,19 @@ function showKeyOverlay(errorMessage) {
 
 keyForm.addEventListener("submit", (e) => {
   e.preventDefault();
-  const key = keyInput.value.trim();
-  if (!key.startsWith("sk-ant-")) {
+  const value = keyInput.value.trim();
+  if (value.startsWith("sk-ant-")) {
+    localStorage.setItem("ivy_api_key", value);
+    localStorage.removeItem("ivy_passphrase");
+  } else if (PROXY_URL && value) {
+    // Not a key — treat it as the shared-access passphrase.
+    localStorage.setItem("ivy_passphrase", value);
+    localStorage.removeItem("ivy_api_key");
+  } else {
     keyError.textContent = "That doesn't look like an Anthropic key (should start with sk-ant-).";
     keyError.hidden = false;
     return;
   }
-  localStorage.setItem("ivy_api_key", key);
   keyInput.value = "";
   keyOverlay.hidden = true;
   setState(null, "Press start to begin talking");
@@ -456,7 +497,7 @@ loginForm.addEventListener("submit", (e) => {
   }
   localStorage.setItem("ivy_user", name);
   showSignedIn(name);
-  if (!localStorage.getItem("ivy_api_key")) showKeyOverlay();
+  if (!hasAccess()) showKeyOverlay();
   else setState(null, "Press start to begin talking");
 });
 

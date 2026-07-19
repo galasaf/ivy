@@ -54,6 +54,10 @@ Rough cost per hour of conversation: Haiku ≈ $0.25, Sonnet ≈ $0.75, Opus ≈
 Invoke-RestMethod -Method Post -Uri http://localhost:4780/api/reset -ContentType application/json -Body '{"name": "the-learner-name", "clearProgress": true}'
 ```
 
+## Shared access on the hosted version (optional)
+
+By default the GitHub Pages build asks every visitor for their own API key. To let family use it without keys, deploy `proxy/ivy-proxy.php` to any PHP host: copy `proxy/ivy-config.sample.php` to `ivy-config.php` beside it, fill in the real API key and a passphrase (that file must never be committed or publicly readable as text), then set `PROXY_URL` at the top of `docs/app.js` to the proxy's URL. Visitors can then enter either the passphrase or their own key. Never put the raw API key at any URL a browser can fetch — that publishes it. Set a monthly spend limit in the Anthropic console as a backstop.
+
 ## Putting it online (later)
 
 The server is a plain Node/Express app, so any Node host works (a small VPS, Railway, Render, Fly.io): copy the folder, set `ANTHROPIC_API_KEY` in the host's environment, run `node server.js`. Two things to know first:
