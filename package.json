@@ -1,0 +1,14 @@
+{
+  "name": "voice-language-app",
+  "version": "1.0.0",
+  "description": "Voice-only English conversation practice with an LLM agent that adapts its vocabulary to the learner",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
+    "express": "^4.21.0"
+  }
+}

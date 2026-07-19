@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ivy — Voice English Practice</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="stage">
+    <h1 class="brand">Ivy</h1>
+    <p class="tagline">Your voice-only English conversation partner</p>
+
+    <div class="avatar-wrap" id="avatarWrap">
+      <svg id="avatar" viewBox="0 0 240 240" aria-label="Ivy the speaking avatar">
+        <defs>
+          <radialGradient id="faceGrad" cx="50%" cy="42%" r="65%">
+            <stop offset="0%" stop-color="#ffe9d6" />
+            <stop offset="100%" stop-color="#f6c9a0" />
+          </radialGradient>
+          <linearGradient id="hairGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#5b4234" />
+            <stop offset="100%" stop-color="#3e2c22" />
+          </linearGradient>
+        </defs>
+
+        <!-- hair back -->
+        <ellipse cx="120" cy="118" rx="86" ry="92" fill="url(#hairGrad)" />
+        <!-- face -->
+        <ellipse cx="120" cy="126" rx="70" ry="76" fill="url(#faceGrad)" />
+        <!-- hair front -->
+        <path d="M 50 110 Q 55 38 120 38 Q 185 38 190 110 Q 172 78 150 72 Q 160 90 152 96 Q 130 66 96 72 Q 66 78 50 110 Z"
+              fill="url(#hairGrad)" />
+        <!-- eyes -->
+        <g class="eye" id="eyeLeft">
+          <ellipse cx="94" cy="118" rx="10" ry="11" fill="#fff" />
+          <circle cx="95" cy="120" r="5.2" fill="#4a3626" />
+          <circle cx="93" cy="118" r="1.8" fill="#fff" />
+        </g>
+        <g class="eye" id="eyeRight">
+          <ellipse cx="146" cy="118" rx="10" ry="11" fill="#fff" />
+          <circle cx="147" cy="120" r="5.2" fill="#4a3626" />
+          <circle cx="145" cy="118" r="1.8" fill="#fff" />
+        </g>
+        <!-- brows -->
+        <path d="M 82 102 Q 94 96 106 101" stroke="#4a3626" stroke-width="3.4" fill="none" stroke-linecap="round" />
+        <path d="M 134 101 Q 146 96 158 102" stroke="#4a3626" stroke-width="3.4" fill="none" stroke-linecap="round" />
+        <!-- nose -->
+        <path d="M 119 128 Q 116 140 121 143" stroke="#d8a074" stroke-width="3" fill="none" stroke-linecap="round" />
+        <!-- blush -->
+        <ellipse cx="86" cy="142" rx="9" ry="5" fill="#f5a58a" opacity="0.45" />
+        <ellipse cx="154" cy="142" rx="9" ry="5" fill="#f5a58a" opacity="0.45" />
+        <!-- mouth: ry is animated while speaking -->
+        <ellipse id="mouth" cx="120" cy="166" rx="16" ry="3" fill="#a34d3f" />
+        <path id="smile" d="M 102 164 Q 120 176 138 164" stroke="#a34d3f" stroke-width="0" fill="none" stroke-linecap="round" />
+      </svg>
+      <div class="halo" id="halo"></div>
+    </div>
+
+    <div class="status" id="status">Press start to begin talking</div>
+
+    <div class="controls">
+      <button id="startBtn" class="primary">Start conversation</button>
+      <button id="stopBtn" class="secondary" hidden>End conversation</button>
+    </div>
+
+    <div class="progress" id="progress" title="Words you have shown you know">
+      Words mastered: <span id="masteredCount">0</span>
+      <span class="user-chip" id="userChip" hidden>
+        &middot; <span id="userName"></span>
+        <button id="switchUserBtn" class="linklike" title="Practice as someone else">switch</button>
+      </span>
+    </div>
+
+    <div class="model-row" title="Which Claude model powers Ivy">
+      <label for="modelSelect">Ivy's brain:</label>
+      <select id="modelSelect">
+        <option value="claude-haiku-4-5">Haiku — fastest &amp; cheapest</option>
+        <option value="claude-sonnet-5">Sonnet — balanced</option>
+        <option value="claude-opus-4-8">Opus — most capable</option>
+      </select>
+    </div>
+
+    <p class="hint">
+      Use Chrome or Edge. Speak when the ring turns green.
+      <button id="changeKeyBtn" class="linklike">API key</button>
+    </p>
+  </main>
+
+  <div class="login-overlay" id="keyOverlay" hidden>
+    <form class="login-card" id="keyForm">
+      <h2>Connect to Claude</h2>
+      <p>
+        Ivy talks using Claude, which needs your own Anthropic API key
+        (<a href="https://platform.claude.com" target="_blank" rel="noopener">get one here</a> —
+        a practice session costs a few cents). The key is stored only in this
+        browser and sent only to Anthropic.
+      </p>
+      <input id="keyInput" type="password" placeholder="sk-ant-..." autocomplete="off" required />
+      <button type="submit" class="primary">Save key</button>
+      <p class="login-error" id="keyError" hidden></p>
+    </form>
+  </div>
+
+  <div class="login-overlay" id="loginOverlay" hidden>
+    <form class="login-card" id="loginForm">
+      <h2>Who's practicing?</h2>
+      <p>Ivy remembers the words each learner already knows (in this browser).</p>
+      <input id="loginName" type="text" maxlength="24" autocomplete="username"
+             placeholder="Your name" required />
+      <button type="submit" class="primary">Start learning</button>
+      <p class="login-error" id="loginError" hidden></p>
+    </form>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
