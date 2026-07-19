@@ -220,3 +220,5 @@ button:active { transform: scale(0.97); }
   margin-top: 12px;
   margin-bottom: 0 !important;
 }
+
+.login-overlay[hidden] { display: none; }
