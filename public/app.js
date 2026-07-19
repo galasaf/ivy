@@ -15,6 +15,9 @@ const learningCountEl = document.getElementById("learningCount");
 const modelSelect = document.getElementById("modelSelect");
 const voiceSelect = document.getElementById("voiceSelect");
 const topicChipsEl = document.getElementById("topicChips");
+const agendaPanel = document.getElementById("agendaPanel");
+const agendaTitle = document.getElementById("agendaTitle");
+const agendaList = document.getElementById("agendaList");
 const wordsToggle = document.getElementById("wordsToggle");
 const wordsCaret = document.getElementById("wordsCaret");
 const wordsPanel = document.getElementById("wordsPanel");
@@ -230,7 +233,11 @@ async function sendToAgent(transcript) {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ transcript, topic: selectedTopic }),
+    body: JSON.stringify({
+      transcript,
+      lessonTitle: currentLesson()?.title || "",
+      agenda: currentLesson()?.agenda || [],
+    }),
   });
   const data = await res.json();
   if (res.status === 401) {
@@ -245,7 +252,7 @@ async function sendToAgent(transcript) {
     learningCountEl.textContent = data.learningCount;
   }
   if (!wordsPanel.hidden) refreshWordLists(); // keep the open panel live
-  return data.reply;
+  return stripStage(data.reply);
 }
 
 async function conversationLoop() {
@@ -319,35 +326,123 @@ startBtn.addEventListener("click", () => {
 stopBtn.addEventListener("click", () => stopConversation());
 
 // ---------------------------------------------------------------------------
-// Topic picker — gives the conversation a clear direction. "Surprise me"
-// lets Ivy choose and announce a topic herself.
+// Guided lessons — specific, real-life scenarios, each with a visible agenda
+// that Ivy walks through step by step. The current step lights up as she
+// signals it with a hidden [STAGE:n] tag on each reply.
 // ---------------------------------------------------------------------------
-const TOPICS = [
-  "Surprise me",
-  "Daily life",
-  "Food & cooking",
-  "Travel",
-  "Family & friends",
-  "Work & school",
-  "Hobbies & fun",
-  "Movies & music",
+const LESSONS = [
+  { id: "restaurant", title: "Ordering at a restaurant", agenda: [
+    "Greet the waiter and ask for a table",
+    "Ask about the menu and today's special",
+    "Order your food and a drink",
+    "Ask for the bill and say thank you",
+  ] },
+  { id: "smalltalk", title: "Small talk with a neighbor", agenda: [
+    "Say hello and mention the weather",
+    "Ask about their weekend or family",
+    "Share something about your own day",
+    "Make a friendly plan or say goodbye",
+  ] },
+  { id: "interview", title: "A job interview", agenda: [
+    "Introduce yourself",
+    "Talk about your experience",
+    "Explain why you want the job",
+    "Ask the interviewer a question",
+  ] },
+  { id: "doctor", title: "A visit to the doctor", agenda: [
+    "Describe how you feel",
+    "Answer questions about your symptoms",
+    "Understand the doctor's advice",
+    "Ask about medicine and next steps",
+  ] },
+  { id: "hotel", title: "Checking into a hotel", agenda: [
+    "Give your booking details",
+    "Ask about the room and breakfast",
+    "Ask for a local recommendation",
+    "Sort out a small problem with the room",
+  ] },
+  { id: "shopping", title: "Shopping and returns", agenda: [
+    "Ask a shop assistant for help",
+    "Ask about size, color, or price",
+    "Decide and pay",
+    "Return an item and explain why",
+  ] },
+  { id: "directions", title: "Asking for directions", agenda: [
+    "Politely stop someone",
+    "Ask the way to a place",
+    "Follow left, right, and straight ahead",
+    "Repeat it back to check you understood",
+  ] },
+  { id: "phone", title: "Calling customer service", agenda: [
+    "Explain your problem",
+    "Give your account details",
+    "Answer their questions",
+    "Confirm the solution and thank them",
+  ] },
+  { id: "weekend", title: "Talking about your weekend", agenda: [
+    "Say what you did",
+    "Add details and how you felt",
+    "Ask about their weekend",
+    "Make a plan for next time",
+  ] },
+  { id: "free", title: "Free chat (Ivy picks)", agenda: [] },
 ];
-let selectedTopic = localStorage.getItem("ivy_topic") || TOPICS[0];
-if (!TOPICS.includes(selectedTopic)) selectedTopic = TOPICS[0];
 
-for (const topic of TOPICS) {
+let selectedLesson = localStorage.getItem("ivy_lesson") || LESSONS[0].id;
+if (!LESSONS.some((l) => l.id === selectedLesson)) selectedLesson = LESSONS[0].id;
+
+function currentLesson() {
+  return LESSONS.find((l) => l.id === selectedLesson) || null;
+}
+
+function renderAgenda() {
+  const lesson = currentLesson();
+  agendaList.innerHTML = "";
+  if (!lesson || !lesson.agenda.length) {
+    agendaPanel.hidden = true;
+    return;
+  }
+  agendaPanel.hidden = false;
+  agendaTitle.textContent = lesson.title;
+  lesson.agenda.forEach((step) => {
+    const li = document.createElement("li");
+    li.textContent = step;
+    agendaList.appendChild(li);
+  });
+}
+
+// Highlight the step Ivy is on: earlier steps done, current one active.
+function setStage(n) {
+  [...agendaList.children].forEach((li, i) => {
+    const idx = i + 1;
+    li.classList.toggle("done", idx < n);
+    li.classList.toggle("active", idx === n);
+  });
+}
+
+for (const lesson of LESSONS) {
   const chip = document.createElement("button");
   chip.type = "button";
-  chip.className = "topic-chip" + (topic === selectedTopic ? " selected" : "");
-  chip.textContent = topic;
+  chip.className = "topic-chip" + (lesson.id === selectedLesson ? " selected" : "");
+  chip.textContent = lesson.title;
   chip.addEventListener("click", () => {
-    selectedTopic = topic;
-    localStorage.setItem("ivy_topic", topic);
-    for (const c of topicChipsEl.children) {
-      c.classList.toggle("selected", c === chip);
-    }
+    selectedLesson = lesson.id;
+    localStorage.setItem("ivy_lesson", lesson.id);
+    for (const c of topicChipsEl.children) c.classList.toggle("selected", c === chip);
+    renderAgenda();
   });
   topicChipsEl.appendChild(chip);
+}
+renderAgenda();
+
+// Pull the [STAGE:n] tag off a reply, advance the agenda, return spoken text.
+function stripStage(reply) {
+  const m = reply.match(/^\s*\[STAGE:(\d+)\]\s*/i);
+  if (m) {
+    setStage(parseInt(m[1], 10));
+    return reply.slice(m[0].length);
+  }
+  return reply;
 }
 
 // ---------------------------------------------------------------------------

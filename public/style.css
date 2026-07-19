@@ -239,6 +239,77 @@ button:active { transform: scale(0.97); }
   border-color: #4ade80;
 }
 
+/* lesson agenda */
+.agenda-panel {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 14px 18px;
+  margin: 0 auto 16px;
+  max-width: 420px;
+  text-align: left;
+}
+
+.agenda-panel h3 {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.6;
+  margin-bottom: 10px;
+}
+
+.agenda-list {
+  list-style: none;
+  counter-reset: step;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agenda-list li {
+  counter-increment: step;
+  position: relative;
+  padding-left: 30px;
+  font-size: 0.9rem;
+  opacity: 0.65;
+  transition: opacity 0.3s ease, color 0.3s ease;
+}
+
+.agenda-list li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: -1px;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  font-size: 0.72rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.agenda-list li.active {
+  opacity: 1;
+  color: #8bf0ad;
+  font-weight: 600;
+}
+
+.agenda-list li.active::before {
+  border-color: #4ade80;
+  box-shadow: 0 0 12px rgba(74, 222, 128, 0.5);
+}
+
+.agenda-list li.done { opacity: 0.85; }
+
+.agenda-list li.done::before {
+  content: "\2713";
+  background: #22c55e;
+  border-color: #22c55e;
+  color: #08240f;
+}
+
 .model-row {
   font-size: 0.85rem;
   opacity: 0.7;

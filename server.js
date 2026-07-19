@@ -216,8 +216,11 @@ Speaking style rules:
 - End most replies with one easy follow-up question so the conversation keeps flowing, and choose topics that invite the user to use your target words.
 - Guide the conversation actively so the learner never wonders what to say. Ask concrete questions rather than open-ended ones, and when the learner gives a very short answer or seems stuck, offer two simple choices to pick from, like: do you like tea or coffee more?
 
-Conversation topic:
-- You may receive a CONVERSATION TOPIC. Open by naming it in a natural way, keep the chat anchored to it, and bring the conversation gently back when it drifts. If the topic is "surprise me", pick one everyday topic yourself, tell the learner what you two will talk about, and stay with it.
+Guided lessons:
+- You may receive a LESSON with a title and a numbered AGENDA of steps. Run the conversation as a friendly role-play that works through the agenda one step at a time, in order. Spend two or three exchanges on each step before moving to the next, and gently steer the learner back if they wander off.
+- Start every reply with a stage tag on its own, exactly like [STAGE:2], giving the number of the agenda step you are currently working on. Use [STAGE:0] for your opening greeting before the first step, or whenever there is no lesson. This tag is removed before your words are spoken, so never mention it or rely on the learner hearing it.
+- When you reach and finish the final step, warmly congratulate the learner, then you may keep chatting freely on the same theme.
+- If there is no lesson, just have a warm, guided free chat and use [STAGE:0] every time.
 
 Vocabulary policy:
 - Each turn you receive a list of TARGET WORDS. These are the most common English words the learner has not yet used themselves. Give them very high priority: weave several of them naturally into every reply, and steer the topic so the learner is likely to say them back to you.
@@ -244,7 +247,16 @@ function vocabBlock(profile) {
   return lines.join("\n");
 }
 
-async function agentReply(user, userText, topic) {
+function lessonBlock(title, agenda) {
+  if (!title) return "";
+  let s = `\nLESSON: ${title}.`;
+  if (agenda.length) {
+    s += "\nAGENDA:\n" + agenda.map((a, i) => `${i + 1}. ${a}`).join("\n");
+  }
+  return s;
+}
+
+async function agentReply(user, userText, lesson) {
   user.conversation.push({ role: "user", content: userText });
   // Keep the history bounded so latency stays low for a voice loop.
   if (user.conversation.length > 30) user.conversation = user.conversation.slice(-30);
@@ -259,7 +271,7 @@ async function agentReply(user, userText, topic) {
         type: "text",
         text:
           vocabBlock(user.profile) +
-          (topic ? `\nCONVERSATION TOPIC: ${topic}.` : ""),
+          lessonBlock(lesson.title, lesson.agenda),
       },
     ],
     messages: user.conversation,
@@ -315,20 +327,30 @@ app.post("/api/chat", async (req, res) => {
   if (!user) return res.status(401).json({ error: "Not signed in." });
   try {
     const transcript = (req.body?.transcript || "").trim();
-    // Optional conversation topic chosen in the UI; kept short and plain.
-    const topic = String(req.body?.topic || "").replace(/[^\w &'-]/g, "").slice(0, 60);
+    // Optional guided lesson chosen in the UI; kept short and plain.
+    const clean = (s, n) => String(s || "").replace(/[^\w &',.?!-]/g, "").slice(0, n);
+    const lesson = {
+      title: clean(req.body?.lessonTitle, 80),
+      agenda: (Array.isArray(req.body?.agenda) ? req.body.agenda : [])
+        .slice(0, 8)
+        .map((a) => clean(a, 100))
+        .filter(Boolean),
+    };
     let newlyMastered = [];
 
     let userText;
     if (transcript) {
       newlyMastered = recordUserSpeech(user, transcript);
       userText = transcript;
+    } else if (lesson.title) {
+      // Conversation opener for a guided lesson — start at the first step.
+      userText = `Please greet me warmly and begin the lesson now, starting with the first step of the agenda. My name is ${user.name}.`;
     } else {
-      // Conversation opener — the agent greets first.
+      // Free-chat opener — the agent greets first.
       userText = `Please greet me warmly and start a simple conversation. I just opened the app. My name is ${user.name}.`;
     }
 
-    const reply = await agentReply(user, userText, topic);
+    const reply = await agentReply(user, userText, lesson);
     res.json({
       reply,
       targetWords: currentTargetWords(user.profile),
