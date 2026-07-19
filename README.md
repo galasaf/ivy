@@ -70,3 +70,7 @@ The server is a plain Node/Express app, so any Node host works (a small VPS, Rai
 - `server.js` — Express server. Tracks word mastery, computes the current target and review words, and calls the Claude API (Haiku by default, switchable) with a stable system prompt plus a per-turn vocabulary block.
 - `data/words.js` — ~490 English words in approximate frequency order.
 - `public/` — browser client: speech recognition → `/api/chat` → speech synthesis, with an SVG avatar (blinking eyes, lip-synced mouth, listening/thinking/speaking state ring).
+
+## Credits
+
+3D avatar model: example avatar from the [TalkingHead](https://github.com/met4citizen/TalkingHead) project (created with Avaturn; non-commercial use). Rendered with [three.js](https://threejs.org).

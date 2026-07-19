@@ -12,6 +12,7 @@
     <p class="tagline">Your voice-only English conversation partner</p>
 
     <div class="avatar-wrap" id="avatarWrap">
+      <div id="avatar3d" aria-label="Ivy the speaking avatar"></div>
       <svg id="avatar" viewBox="0 0 240 240" aria-label="Ivy the speaking avatar">
         <defs>
           <radialGradient id="faceGrad" cx="50%" cy="42%" r="65%">
@@ -68,8 +69,8 @@
       <button id="stopBtn" class="secondary" hidden>End conversation</button>
     </div>
 
-    <div class="progress" id="progress" title="Words you have shown you know">
-      Words mastered: <span id="masteredCount">0</span>
+    <div class="progress" id="progress" title="Mastered words were spoken twice; learning words once so far">
+      Words mastered: <span id="masteredCount">0</span> &middot; learning: <span id="learningCount">0</span>
       <span class="user-chip" id="userChip" hidden>
         &middot; <span id="userName"></span>
         <button id="switchUserBtn" class="linklike" title="Practice as someone else">switch</button>
@@ -99,6 +100,14 @@
     </form>
   </div>
 
-  <script src="app.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

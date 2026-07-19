@@ -181,6 +181,14 @@ function masteredWords(profile) {
   return WORD_FREQUENCY.filter((w) => isMastered(profile, w));
 }
 
+// Words spoken at least once but not yet mastered — shown as "learning".
+function learningCount(profile) {
+  return WORD_FREQUENCY.filter((w) => {
+    const c = profile.counts[w] || 0;
+    return c > 0 && c < MASTERY_THRESHOLD;
+  }).length;
+}
+
 // Resurfacing: mastered words the user hasn't spoken in a long time slowly
 // come back as review targets, oldest first. Speaking one refreshes its
 // timestamp (in recordUserSpeech), which sends it back to dormant.
@@ -311,6 +319,7 @@ app.post("/api/chat", async (req, res) => {
       targetWords: currentTargetWords(user.profile),
       reviewWords: reviewWords(user.profile),
       masteredCount: masteredWords(user.profile).length,
+      learningCount: learningCount(user.profile),
       newlyMastered,
     });
   } catch (err) {
@@ -330,6 +339,7 @@ app.get("/api/stats", (req, res) => {
     targetWords: currentTargetWords(user.profile),
     reviewWords: reviewWords(user.profile),
     masteredCount: masteredWords(user.profile).length,
+    learningCount: learningCount(user.profile),
     totalTracked: WORD_FREQUENCY.length,
   });
 });

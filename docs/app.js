@@ -7,6 +7,7 @@
 //   speak (speech synthesis + avatar lip animation) -> listen again.
 
 import { WORD_FREQUENCY } from "./words.js";
+import { createAvatar3D } from "./avatar3d.js";
 
 const startBtn = document.getElementById("startBtn");
 const stopBtn = document.getElementById("stopBtn");
@@ -15,7 +16,20 @@ const avatarWrap = document.getElementById("avatarWrap");
 const mouth = document.getElementById("mouth");
 const smile = document.getElementById("smile");
 const masteredCountEl = document.getElementById("masteredCount");
+const learningCountEl = document.getElementById("learningCount");
 const modelSelect = document.getElementById("modelSelect");
+
+// 3D avatar (Ready Player Me + three.js). If WebGL or the model fails,
+// avatar3d stays null and the built-in SVG avatar keeps working.
+let avatar3d = null;
+createAvatar3D(document.getElementById("avatar3d"))
+  .then((api) => {
+    if (api) {
+      avatar3d = api;
+      document.getElementById("avatar").style.display = "none";
+    }
+  })
+  .catch((err) => console.warn("3D avatar unavailable:", err));
 const loginOverlay = document.getElementById("loginOverlay");
 const loginForm = document.getElementById("loginForm");
 const loginName = document.getElementById("loginName");
@@ -101,6 +115,14 @@ function currentTargetWords() {
 
 function masteredWords() {
   return WORD_FREQUENCY.filter(isMastered);
+}
+
+// Words spoken at least once but not yet mastered — shown as "learning".
+function learningWords() {
+  return WORD_FREQUENCY.filter((w) => {
+    const c = currentUser.profile.counts[w] || 0;
+    return c > 0 && c < MASTERY_THRESHOLD;
+  });
 }
 
 function reviewWords() {
@@ -228,6 +250,7 @@ async function sendToAgent(transcript) {
   }
   const reply = await agentReply(userText);
   masteredCountEl.textContent = masteredWords().length;
+  learningCountEl.textContent = learningWords().length;
   return reply;
 }
 
@@ -237,6 +260,7 @@ async function sendToAgent(transcript) {
 function setState(state, message) {
   avatarWrap.classList.remove("listening", "thinking", "speaking");
   if (state) avatarWrap.classList.add(state);
+  if (avatar3d) avatar3d.setMode(state || "idle");
   statusEl.textContent = message;
 }
 
@@ -249,6 +273,7 @@ let lastWordAt = 0;
 let boundarySupported = false;
 
 function startMouthAnimation() {
+  if (avatar3d) return; // 3D avatar handles its own lip-sync
   smile.setAttribute("stroke-width", "0");
   stopMouthAnimation();
   mouthTimer = setInterval(() => {
@@ -310,15 +335,18 @@ function speak(text) {
     utterance.rate = 0.95;
     utterance.pitch = 1.05;
 
-    utterance.onboundary = () => {
+    utterance.onboundary = (event) => {
       boundarySupported = true;
       lastWordAt = Date.now();
+      if (avatar3d) avatar3d.speechBoundary(event.charIndex);
     };
     utterance.onstart = () => {
       setState("speaking", "Ivy is speaking…");
+      if (avatar3d) avatar3d.speechStart(text);
       startMouthAnimation();
     };
     const finish = () => {
+      if (avatar3d) avatar3d.speechEnd();
       stopMouthAnimation();
       resolve();
     };
@@ -499,6 +527,7 @@ function showSignedIn(name) {
   userNameEl.textContent = name;
   userChip.hidden = false;
   masteredCountEl.textContent = masteredWords().length;
+  learningCountEl.textContent = learningWords().length;
 }
 
 loginForm.addEventListener("submit", (e) => {
@@ -539,6 +568,7 @@ if (rememberedUser && isValidName(rememberedUser)) {
 // Natural blinking: randomized intervals, both eyes together, occasional double blink.
 const avatarSvg = document.getElementById("avatar");
 function doBlink() {
+  if (avatar3d) return; // 3D avatar blinks on its own
   avatarSvg.classList.add("blink");
   setTimeout(() => avatarSvg.classList.remove("blink"), 130);
 }
