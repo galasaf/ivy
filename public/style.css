@@ -82,13 +82,47 @@ body {
   50% { transform: scale(1.02) rotate(3deg); }
 }
 
-/* blinking */
-.eye { transform-origin: center; animation: blink 4.6s infinite; }
-#eyeRight { animation-delay: 0.05s; }
+/* blinking: driven by JS (randomized, both eyes together) */
+.eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.07s ease;
+}
+#avatar.blink .eye { transform: scaleY(0.08); }
 
-@keyframes blink {
-  0%, 94%, 100% { transform: scaleY(1); }
-  96%, 98% { transform: scaleY(0.08); }
+/* reactive face: pupils, brows, and head follow the conversation state */
+.pupil, #browLeft, #browRight {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.35s ease;
+}
+#avatar { transition: transform 0.45s ease; }
+
+.avatar-wrap.listening #avatar { transform: rotate(2.5deg); }
+.avatar-wrap.listening #browLeft,
+.avatar-wrap.listening #browRight { transform: translateY(-3px); }
+
+.avatar-wrap.thinking #avatar { transform: rotate(-2deg); }
+.avatar-wrap.thinking .pupil { transform: translate(-2.5px, -3px); }
+.avatar-wrap.thinking #browLeft { transform: translateY(-1px) rotate(-4deg); }
+.avatar-wrap.thinking #browRight { transform: translateY(-3px); }
+
+.avatar-wrap.speaking #avatar { animation: headBob 2.2s ease-in-out infinite; }
+
+@keyframes headBob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  30% { transform: translateY(1.5px) rotate(0.7deg); }
+  70% { transform: translateY(-1px) rotate(-0.7deg); }
+}
+
+/* subtle breathing while idle */
+.avatar-wrap:not(.listening):not(.thinking):not(.speaking) #avatar {
+  animation: breathe 4.5s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(1.4px) scale(1.005); }
 }
 
 .status {

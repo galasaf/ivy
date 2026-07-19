@@ -34,17 +34,21 @@
         <!-- eyes -->
         <g class="eye" id="eyeLeft">
           <ellipse cx="94" cy="118" rx="10" ry="11" fill="#fff" />
-          <circle cx="95" cy="120" r="5.2" fill="#4a3626" />
-          <circle cx="93" cy="118" r="1.8" fill="#fff" />
+          <g class="pupil">
+            <circle cx="95" cy="120" r="5.2" fill="#4a3626" />
+            <circle cx="93" cy="118" r="1.8" fill="#fff" />
+          </g>
         </g>
         <g class="eye" id="eyeRight">
           <ellipse cx="146" cy="118" rx="10" ry="11" fill="#fff" />
-          <circle cx="147" cy="120" r="5.2" fill="#4a3626" />
-          <circle cx="145" cy="118" r="1.8" fill="#fff" />
+          <g class="pupil">
+            <circle cx="147" cy="120" r="5.2" fill="#4a3626" />
+            <circle cx="145" cy="118" r="1.8" fill="#fff" />
+          </g>
         </g>
         <!-- brows -->
-        <path d="M 82 102 Q 94 96 106 101" stroke="#4a3626" stroke-width="3.4" fill="none" stroke-linecap="round" />
-        <path d="M 134 101 Q 146 96 158 102" stroke="#4a3626" stroke-width="3.4" fill="none" stroke-linecap="round" />
+        <path id="browLeft" d="M 82 102 Q 94 96 106 101" stroke="#4a3626" stroke-width="3.4" fill="none" stroke-linecap="round" />
+        <path id="browRight" d="M 134 101 Q 146 96 158 102" stroke="#4a3626" stroke-width="3.4" fill="none" stroke-linecap="round" />
         <!-- nose -->
         <path d="M 119 128 Q 116 140 121 143" stroke="#d8a074" stroke-width="3" fill="none" stroke-linecap="round" />
         <!-- blush -->

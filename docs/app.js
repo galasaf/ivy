@@ -245,12 +245,22 @@ function setIdleFace() {
   smile.setAttribute("stroke-width", "4");
 }
 
+let lastWordAt = 0;
+let boundarySupported = false;
+
 function startMouthAnimation() {
   smile.setAttribute("stroke-width", "0");
   stopMouthAnimation();
   mouthTimer = setInterval(() => {
-    // Randomized mouth opening approximates natural lip movement.
-    const openness = 2 + Math.random() * 11;
+    let openness;
+    if (boundarySupported) {
+      // Sync to real speech rhythm: open wide on each spoken word, settle between.
+      const sinceWord = Date.now() - lastWordAt;
+      openness = sinceWord < 260 ? 5 + Math.random() * 9 : 1.5 + Math.random() * 3;
+    } else {
+      // Fallback when the voice emits no word-boundary events: randomized movement.
+      openness = 2 + Math.random() * 11;
+    }
     const width = 13 + Math.random() * 5;
     mouth.setAttribute("ry", openness.toFixed(1));
     mouth.setAttribute("rx", width.toFixed(1));
@@ -300,6 +310,10 @@ function speak(text) {
     utterance.rate = 0.95;
     utterance.pitch = 1.05;
 
+    utterance.onboundary = () => {
+      boundarySupported = true;
+      lastWordAt = Date.now();
+    };
     utterance.onstart = () => {
       setState("speaking", "Ivy is speaking…");
       startMouthAnimation();
@@ -521,5 +535,19 @@ if (rememberedUser && isValidName(rememberedUser)) {
 } else {
   showLogin();
 }
+
+// Natural blinking: randomized intervals, both eyes together, occasional double blink.
+const avatarSvg = document.getElementById("avatar");
+function doBlink() {
+  avatarSvg.classList.add("blink");
+  setTimeout(() => avatarSvg.classList.remove("blink"), 130);
+}
+(function scheduleBlink() {
+  setTimeout(() => {
+    doBlink();
+    if (Math.random() < 0.18) setTimeout(doBlink, 280);
+    scheduleBlink();
+  }, 2200 + Math.random() * 3800);
+})();
 
 setIdleFace();
