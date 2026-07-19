@@ -32,7 +32,7 @@ const changeKeyBtn = document.getElementById("changeKeyBtn");
 // Optional shared-access proxy (see proxy/ivy-proxy.php in the repo): a PHP
 // endpoint that holds the owner's API key server-side behind a passphrase.
 // Leave empty to require every visitor to bring their own key.
-const PROXY_URL = "";
+const PROXY_URL = "https://asafgal.com/ivy/ivy-proxy.php";
 
 const SpeechRecognition =
   window.SpeechRecognition || window.webkitSpeechRecognition;
