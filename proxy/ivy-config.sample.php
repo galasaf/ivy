@@ -5,4 +5,5 @@ return [
   'api_key' => 'sk-ant-your-real-key-here',        // Anthropic (chat) — used by ivy-proxy.php
   'elevenlabs_key' => 'sk_your-elevenlabs-key-here', // ElevenLabs (voice) — used by eleven-proxy.php
   'passphrase' => 'choose-a-passphrase-for-family',
+  'voice_daily_chars' => 8000, // optional: shared ElevenLabs character budget per day
 ];

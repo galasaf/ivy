@@ -55,6 +55,32 @@ if (trim($text) === '') {
   exit;
 }
 
+// Daily character budget shared across all users, so a busy day can never burn
+// the whole monthly ElevenLabs quota. Tracked in a small JSON file next to this
+// script; adjust the limit to taste. On 429 the app quietly uses a browser voice.
+$dailyLimit = isset($config['voice_daily_chars']) ? (int) $config['voice_daily_chars'] : 8000;
+$usageFile = __DIR__ . '/eleven-usage.json';
+$today = gmdate('Y-m-d');
+$fp = @fopen($usageFile, 'c+');
+if ($fp) {
+  flock($fp, LOCK_EX);
+  $data = json_decode(stream_get_contents($fp), true);
+  $used = (is_array($data) && ($data['date'] ?? '') === $today) ? (int) ($data['chars'] ?? 0) : 0;
+  if ($used + mb_strlen($text) > $dailyLimit) {
+    flock($fp, LOCK_UN);
+    fclose($fp);
+    http_response_code(429);
+    echo json_encode(['error' => ['message' => 'Daily voice limit reached. Try again tomorrow.']]);
+    exit;
+  }
+  $used += mb_strlen($text);
+  ftruncate($fp, 0);
+  rewind($fp);
+  fwrite($fp, json_encode(['date' => $today, 'chars' => $used]));
+  flock($fp, LOCK_UN);
+  fclose($fp);
+}
+
 $payload = json_encode([
   'text' => $text,
   'model_id' => 'eleven_flash_v2_5',
