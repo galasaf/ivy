@@ -137,13 +137,18 @@ export async function createAvatar3D(container) {
   // ---- morph target control: lerp current values toward targets ----------
   const morphTargets = {}; // name -> desired 0..1
   function applyMorphs(dt) {
-    const k = Math.min(1, dt * 16);
+    // Blinks and brows snap; mouth/jaw glide more slowly so speech reads as
+    // smooth articulation rather than a flutter.
+    const kFast = Math.min(1, dt * 18);
+    const kMouth = Math.min(1, dt * 10);
     for (const mesh of morphMeshes) {
       const dict = mesh.morphTargetDictionary;
       for (const name in dict) {
         const want = morphTargets[name] || 0;
         const idx = dict[name];
         const cur = mesh.morphTargetInfluences[idx] || 0;
+        const k = (name === "jawOpen" || name.startsWith("viseme_") || name.startsWith("mouth"))
+          ? kMouth : kFast;
         mesh.morphTargetInfluences[idx] = cur + (want - cur) * k;
       }
     }
@@ -350,9 +355,19 @@ export async function createAvatar3D(container) {
       const slot = (weights[i] / total) * dur;
       if (/^[A-Za-z']/.test(tok)) {
         const visemes = wordToVisemes(tok);
-        const per = (slot * 0.78) / visemes.length; // ~22% closing gap per word
-        visemes.forEach((name, j) => {
-          events.push({ name, at: t + j * per, dur: per * 1.3, word: i });
+        // Never let the mouth change shape faster than the eye can follow, or
+        // it reads as a twitch. Cap the visemes to fit a minimum hold time and
+        // evenly sample the word's shape down to that count.
+        const MIN_HOLD = 0.11; // seconds each viseme is given
+        const usable = slot * 0.85;
+        const count = Math.max(1, Math.min(visemes.length, Math.round(usable / MIN_HOLD)));
+        const chosen = [];
+        for (let k = 0; k < count; k++) {
+          chosen.push(visemes[Math.floor((k + 0.5) * visemes.length / count)]);
+        }
+        const per = usable / count;
+        chosen.forEach((name, j) => {
+          events.push({ name, at: t + j * per, dur: per * 1.35, word: i });
         });
         // Emphasis words get wide eyes and a nod right when they land.
         if (EMPHASIS_WORD.test(tok)) {
@@ -466,7 +481,7 @@ export async function createAvatar3D(container) {
         if (t >= v.at && t < v.at + v.dur) {
           const phase = (t - v.at) / v.dur;
           const env = Math.sin(Math.min(1, phase) * Math.PI);
-          setViseme(v.name, env * (0.12 + loud * 0.9));
+          setViseme(v.name, env * (0.45 + loud * 0.55));
           if (v.word !== sync.lastWord) {
             sync.lastWord = v.word;
             punctuateWord();
@@ -493,7 +508,7 @@ export async function createAvatar3D(container) {
     // the visemes already opened for a vowel. So consonants, gaps, and pauses
     // (where no viseme is active) let the mouth fully close instead of hanging
     // open and twitching with the audio.
-    morphTargets.jawOpen = Math.min(0.65, morphTargets.jawOpen * (0.7 + loud * 0.3));
+    morphTargets.jawOpen = Math.min(0.7, morphTargets.jawOpen * (0.82 + loud * 0.18));
     mouthShaping();
   }
 
