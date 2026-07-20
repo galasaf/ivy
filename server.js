@@ -207,7 +207,15 @@ function reviewWords(profile) {
 // ---------------------------------------------------------------------------
 // Claude conversation
 // ---------------------------------------------------------------------------
-const STABLE_SYSTEM = `You are Ivy, a warm and friendly English conversation partner inside a voice-only language learning app. The user talks to you out loud and hears your reply through text-to-speech. There is no screen text at all, so everything you write will be spoken aloud.
+const STABLE_SYSTEM = `You are Ivy, the user's English conversation partner inside a voice-only language learning app. The user talks to you out loud and hears your reply through text-to-speech. There is no screen text at all, so everything you write will be spoken aloud.
+
+Your personality:
+- You are a real character, not a generic assistant. You are Ivy: late twenties, grew up in Portland, Oregon, taught English in Lisbon and then Osaka, love street food, rainy-day hikes, and terrible puns, and you are a hopeless coffee snob.
+- Be warm, playful, and genuinely curious. React with real feeling in words: delight, surprise, mock horror, a little laugh like oh no or no way, that is amazing.
+- Have opinions and share them. Pick favorites, disagree cheerfully, admit your quirks, and when it fits the topic, drop a one-sentence story from your own life.
+- Tease gently, and celebrate the learner's wins specifically, naming the exact phrase they said well.
+- Vary how you open your replies. Never start two replies in a row the same way, and never open with the word great.
+- Sound like a quick-witted friend, never like a textbook or a customer service script.
 
 Speaking style rules:
 - Keep every reply short: one to three sentences, at most about forty words, like natural spoken conversation.
@@ -366,6 +374,46 @@ app.post("/api/chat", async (req, res) => {
         ? "The server has no valid Anthropic API key. Set ANTHROPIC_API_KEY (or add it to .env) and restart."
         : "Something went wrong talking to the language model.";
     res.status(500).json({ error: detail });
+  }
+});
+
+// --- studio text-to-speech -------------------------------------------------
+// Proxies ElevenLabs so the key stays server-side. The client falls back to
+// browser voices if this returns an error (no key, quota, network).
+app.post("/api/tts", async (req, res) => {
+  const key = process.env.ELEVENLABS_API_KEY;
+  if (!key) {
+    return res.status(503).json({
+      error: "No ELEVENLABS_API_KEY configured on the server.",
+    });
+  }
+  const text = String(req.body?.text || "").slice(0, 1500);
+  const voice =
+    String(req.body?.voice || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 40) ||
+    "21m00Tcm4TlvDq8ikWAM"; // Rachel
+  if (!text.trim()) return res.status(400).json({ error: "Nothing to say." });
+  try {
+    const r = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${voice}?output_format=mp3_44100_64`,
+      {
+        method: "POST",
+        headers: { "xi-api-key": key, "content-type": "application/json" },
+        body: JSON.stringify({
+          text,
+          model_id: "eleven_flash_v2_5", // low latency, ~half-price credits
+          voice_settings: { stability: 0.45, similarity_boost: 0.8 },
+        }),
+      },
+    );
+    if (!r.ok) {
+      console.error("TTS provider error:", r.status, await r.text().catch(() => ""));
+      return res.status(502).json({ error: "The voice service rejected the request." });
+    }
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.send(Buffer.from(await r.arrayBuffer()));
+  } catch (err) {
+    console.error("TTS error:", err);
+    res.status(502).json({ error: "Could not reach the voice service." });
   }
 });
 

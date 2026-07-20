@@ -99,6 +99,15 @@ function stopMouthAnimation() {
 // ---------------------------------------------------------------------------
 // Text to speech
 // ---------------------------------------------------------------------------
+// Two tiers: "studio" voices (ElevenLabs neural TTS — genuinely human, the
+// audio waveform drives the avatar's lips) and free browser voices as
+// fallback. Studio voice values look like "11labs:<voiceId>".
+const STUDIO_VOICES = [
+  { id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel — studio ★★" },
+  { id: "XrExE9yKIg1WjnnlVkGX", label: "Matilda — studio ★★" },
+  { id: "Xb7hH8MSUJpSbSDYk0k2", label: "Alice — studio ★★" },
+];
+
 // Rank browser voices by how human they sound. Edge's "Online (Natural)"
 // neural voices are far better than anything else; Google's cloud voices come
 // next; plain local system voices (Zira, David…) are the robotic last resort.
@@ -130,9 +139,19 @@ function pickVoice() {
 
 function populateVoices() {
   const voices = englishVoices();
-  if (!voices.length) return;
   preferredVoice = pickVoice();
   voiceSelect.innerHTML = "";
+  const studioGroup = document.createElement("optgroup");
+  studioGroup.label = "Most realistic";
+  for (const sv of STUDIO_VOICES) {
+    const opt = document.createElement("option");
+    opt.value = "11labs:" + sv.id;
+    opt.textContent = sv.label;
+    studioGroup.appendChild(opt);
+  }
+  voiceSelect.appendChild(studioGroup);
+  const browserGroup = document.createElement("optgroup");
+  browserGroup.label = "Browser voices (free)";
   for (const v of voices) {
     const opt = document.createElement("option");
     opt.value = v.name;
@@ -142,9 +161,15 @@ function populateVoices() {
       .replace(" Online (Natural) - English", "")
       .replace(" - English", "");
     if (/Online \(Natural\)/.test(v.name)) opt.textContent += " ★";
-    voiceSelect.appendChild(opt);
+    browserGroup.appendChild(opt);
   }
-  if (preferredVoice) voiceSelect.value = preferredVoice.name;
+  voiceSelect.appendChild(browserGroup);
+  const saved = localStorage.getItem("ivy_voice");
+  if (saved && [...voiceSelect.options].some((o) => o.value === saved)) {
+    voiceSelect.value = saved;
+  } else if (preferredVoice) {
+    voiceSelect.value = preferredVoice.name;
+  }
 }
 
 speechSynthesis.onvoiceschanged = populateVoices;
@@ -161,7 +186,62 @@ voiceSelect.addEventListener("change", () => {
   }
 });
 
-function speak(text) {
+// ---- studio voice playback: real audio, lips follow the waveform ---------
+let audioCtx = null;
+let currentAudio = null;
+
+async function playWithLipSync(text, blob) {
+  audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") await audioCtx.resume();
+  const audio = new Audio(URL.createObjectURL(blob));
+  const src = audioCtx.createMediaElementSource(audio);
+  const analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 1024;
+  src.connect(analyser);
+  analyser.connect(audioCtx.destination);
+  currentAudio = audio;
+  await new Promise((resolve) => {
+    audio.onended = resolve;
+    audio.onerror = resolve;
+    setState("speaking", "Ivy is speaking…");
+    if (avatar3d) avatar3d.speechAudio(text, audio, analyser);
+    startMouthAnimation();
+    audio.play().catch(resolve);
+  });
+  if (avatar3d) avatar3d.speechEnd();
+  stopMouthAnimation();
+  URL.revokeObjectURL(audio.src);
+  currentAudio = null;
+}
+
+async function fetchStudioAudio(text, voiceId) {
+  const res = await fetch("/api/tts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, voice: voiceId }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.error || "Studio voice unavailable.");
+  }
+  return res.blob();
+}
+
+async function speak(text) {
+  const sel = voiceSelect.value;
+  if (sel.startsWith("11labs:")) {
+    try {
+      const blob = await fetchStudioAudio(text, sel.slice(7));
+      return await playWithLipSync(text, blob);
+    } catch (err) {
+      console.warn("Studio voice failed, using browser voice:", err);
+      statusEl.textContent = "Studio voice unavailable — using a browser voice.";
+    }
+  }
+  return speakBrowser(text);
+}
+
+function speakBrowser(text) {
   return new Promise((resolve) => {
     speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
@@ -306,6 +386,10 @@ function stopConversation(keepStatus = false) {
     try { recognition.abort(); } catch { /* already stopped */ }
   }
   speechSynthesis.cancel();
+  if (currentAudio) {
+    try { currentAudio.pause(); } catch { /* already stopped */ }
+    currentAudio = null;
+  }
   stopMouthAnimation();
   startBtn.hidden = false;
   stopBtn.hidden = true;

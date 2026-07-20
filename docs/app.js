@@ -150,7 +150,15 @@ function reviewWords() {
 // ---------------------------------------------------------------------------
 // Claude conversation (direct browser -> Anthropic API with the user's key)
 // ---------------------------------------------------------------------------
-const STABLE_SYSTEM = `You are Ivy, a warm and friendly English conversation partner inside a voice-only language learning app. The user talks to you out loud and hears your reply through text-to-speech. There is no screen text at all, so everything you write will be spoken aloud.
+const STABLE_SYSTEM = `You are Ivy, the user's English conversation partner inside a voice-only language learning app. The user talks to you out loud and hears your reply through text-to-speech. There is no screen text at all, so everything you write will be spoken aloud.
+
+Your personality:
+- You are a real character, not a generic assistant. You are Ivy: late twenties, grew up in Portland, Oregon, taught English in Lisbon and then Osaka, love street food, rainy-day hikes, and terrible puns, and you are a hopeless coffee snob.
+- Be warm, playful, and genuinely curious. React with real feeling in words: delight, surprise, mock horror, a little laugh like oh no or no way, that is amazing.
+- Have opinions and share them. Pick favorites, disagree cheerfully, admit your quirks, and when it fits the topic, drop a one-sentence story from your own life.
+- Tease gently, and celebrate the learner's wins specifically, naming the exact phrase they said well.
+- Vary how you open your replies. Never start two replies in a row the same way, and never open with the word great.
+- Sound like a quick-witted friend, never like a textbook or a customer service script.
 
 Speaking style rules:
 - Keep every reply short: one to three sentences, at most about forty words, like natural spoken conversation.
@@ -326,6 +334,15 @@ function stopMouthAnimation() {
 // ---------------------------------------------------------------------------
 // Text to speech
 // ---------------------------------------------------------------------------
+// Two tiers: "studio" voices (ElevenLabs neural TTS — genuinely human, the
+// audio waveform drives the avatar's lips; needs a free ElevenLabs API key)
+// and free browser voices as fallback. Studio values look like "11labs:<id>".
+const STUDIO_VOICES = [
+  { id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel — studio ★★" },
+  { id: "XrExE9yKIg1WjnnlVkGX", label: "Matilda — studio ★★" },
+  { id: "Xb7hH8MSUJpSbSDYk0k2", label: "Alice — studio ★★" },
+];
+
 // Rank browser voices by how human they sound. Edge's "Online (Natural)"
 // neural voices are far better than anything else; Google's cloud voices come
 // next; plain local system voices (Zira, David…) are the robotic last resort.
@@ -357,9 +374,19 @@ function pickVoice() {
 
 function populateVoices() {
   const voices = englishVoices();
-  if (!voices.length) return;
   preferredVoice = pickVoice();
   voiceSelect.innerHTML = "";
+  const studioGroup = document.createElement("optgroup");
+  studioGroup.label = "Most realistic (needs ElevenLabs key)";
+  for (const sv of STUDIO_VOICES) {
+    const opt = document.createElement("option");
+    opt.value = "11labs:" + sv.id;
+    opt.textContent = sv.label;
+    studioGroup.appendChild(opt);
+  }
+  voiceSelect.appendChild(studioGroup);
+  const browserGroup = document.createElement("optgroup");
+  browserGroup.label = "Browser voices (free)";
   for (const v of voices) {
     const opt = document.createElement("option");
     opt.value = v.name;
@@ -369,9 +396,15 @@ function populateVoices() {
       .replace(" Online (Natural) - English", "")
       .replace(" - English", "");
     if (/Online \(Natural\)/.test(v.name)) opt.textContent += " ★";
-    voiceSelect.appendChild(opt);
+    browserGroup.appendChild(opt);
   }
-  if (preferredVoice) voiceSelect.value = preferredVoice.name;
+  voiceSelect.appendChild(browserGroup);
+  const saved = localStorage.getItem("ivy_voice");
+  if (saved && [...voiceSelect.options].some((o) => o.value === saved)) {
+    voiceSelect.value = saved;
+  } else if (preferredVoice) {
+    voiceSelect.value = preferredVoice.name;
+  }
 }
 
 speechSynthesis.onvoiceschanged = populateVoices;
@@ -388,7 +421,86 @@ voiceSelect.addEventListener("change", () => {
   }
 });
 
-function speak(text) {
+// ---- studio voice playback: real audio, lips follow the waveform ---------
+let audioCtx = null;
+let currentAudio = null;
+
+async function playWithLipSync(text, blob) {
+  audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") await audioCtx.resume();
+  const audio = new Audio(URL.createObjectURL(blob));
+  const src = audioCtx.createMediaElementSource(audio);
+  const analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 1024;
+  src.connect(analyser);
+  analyser.connect(audioCtx.destination);
+  currentAudio = audio;
+  await new Promise((resolve) => {
+    audio.onended = resolve;
+    audio.onerror = resolve;
+    setState("speaking", "Ivy is speaking…");
+    if (avatar3d) avatar3d.speechAudio(text, audio, analyser);
+    startMouthAnimation();
+    audio.play().catch(resolve);
+  });
+  if (avatar3d) avatar3d.speechEnd();
+  stopMouthAnimation();
+  URL.revokeObjectURL(audio.src);
+  currentAudio = null;
+}
+
+function studioKey() {
+  let key = localStorage.getItem("ivy_eleven_key");
+  if (!key) {
+    key = window.prompt(
+      "Studio voices use ElevenLabs text-to-speech.\n\n" +
+        "Get a free API key at elevenlabs.io (free tier includes about 10 " +
+        "minutes of speech per month), then paste it here. It is stored only " +
+        "in this browser.",
+    );
+    if (key) localStorage.setItem("ivy_eleven_key", key.trim());
+  }
+  return key ? key.trim() : null;
+}
+
+async function fetchStudioAudio(text, voiceId) {
+  const key = studioKey();
+  if (!key) throw new Error("No ElevenLabs key.");
+  const res = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_64`,
+    {
+      method: "POST",
+      headers: { "xi-api-key": key, "content-type": "application/json" },
+      body: JSON.stringify({
+        text,
+        model_id: "eleven_flash_v2_5", // low latency, ~half-price credits
+        voice_settings: { stability: 0.45, similarity_boost: 0.8 },
+      }),
+    },
+  );
+  if (res.status === 401) {
+    localStorage.removeItem("ivy_eleven_key");
+    throw new Error("ElevenLabs rejected the key.");
+  }
+  if (!res.ok) throw new Error("Studio voice unavailable.");
+  return res.blob();
+}
+
+async function speak(text) {
+  const sel = voiceSelect.value;
+  if (sel.startsWith("11labs:")) {
+    try {
+      const blob = await fetchStudioAudio(text, sel.slice(7));
+      return await playWithLipSync(text, blob);
+    } catch (err) {
+      console.warn("Studio voice failed, using browser voice:", err);
+      statusEl.textContent = "Studio voice unavailable — using a browser voice.";
+    }
+  }
+  return speakBrowser(text);
+}
+
+function speakBrowser(text) {
   return new Promise((resolve) => {
     speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
@@ -506,6 +618,10 @@ function stopConversation(keepStatus = false) {
     try { recognition.abort(); } catch { /* already stopped */ }
   }
   speechSynthesis.cancel();
+  if (currentAudio) {
+    try { currentAudio.pause(); } catch { /* already stopped */ }
+    currentAudio = null;
+  }
   stopMouthAnimation();
   startBtn.hidden = false;
   stopBtn.hidden = true;

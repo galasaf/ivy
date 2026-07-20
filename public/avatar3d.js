@@ -1,23 +1,34 @@
-// 3D avatar for Ivy: a Ready Player Me human model with Oculus viseme and
-// ARKit blendshape morph targets, rendered with three.js and animated from
-// conversation state plus real word timings from speech synthesis.
+// 3D avatar for Ivy: a realistic Avaturn-exported human model (from the
+// TalkingHead project's examples, non-commercial use) with Oculus viseme and
+// ARKit blendshape morph targets, rendered with three.js.
 //
 // createAvatar3D(container) resolves to an API object, or null if WebGL or
 // the model fails — callers keep the SVG avatar as fallback in that case.
 //
 //   api.setMode("idle" | "listening" | "thinking" | "speaking")
-//   api.speechStart(fullText)   — a reply is about to be spoken
+//   api.speechStart(fullText)   — a reply is about to be spoken (browser TTS)
 //   api.speechBoundary(charIdx) — speech synthesis reached a word
+//   api.speechAudio(text, audioEl, analyser) — a reply plays from an <audio>
+//     element; lips follow the real waveform via the analyser (studio TTS)
 //   api.speechEnd()
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
-// Self-hosted model (TalkingHead project's example avatar, non-commercial
-// use): a Ready Player Me-style rig with Oculus visemes + ARKit blendshapes.
 const AVATAR_URL = "ivy.glb";
 
-// Rough letter-to-viseme mapping; good enough to read as natural lip motion.
+// Grapheme-to-viseme rules. Two-letter clusters are matched before single
+// letters so "th", "sh", "oo" and friends map to the right mouth shape
+// instead of two wrong ones — a big part of why lips used to look random.
+const DIGRAPH_VISEME = {
+  th: "viseme_TH", ch: "viseme_CH", sh: "viseme_CH", tch: "viseme_CH",
+  ph: "viseme_FF", wh: "viseme_U", ng: "viseme_nn", ck: "viseme_kk",
+  qu: "viseme_kk", oo: "viseme_U", ee: "viseme_I", ea: "viseme_I",
+  ai: "viseme_E", ay: "viseme_E", oa: "viseme_O", ow: "viseme_O",
+  ou: "viseme_O", oi: "viseme_O", aw: "viseme_O", er: "viseme_RR",
+};
+
 const LETTER_VISEME = {
   a: "viseme_aa", e: "viseme_E", i: "viseme_I", o: "viseme_O", u: "viseme_U",
   b: "viseme_PP", p: "viseme_PP", m: "viseme_PP",
@@ -30,11 +41,19 @@ const LETTER_VISEME = {
 };
 
 function wordToVisemes(word) {
+  let w = word.toLowerCase();
+  // Silent trailing e: "make" should end on kk, not open into an E.
+  if (w.length > 3 && w.endsWith("e") && !"aeiou".includes(w[w.length - 2])) {
+    w = w.slice(0, -1);
+  }
   const out = [];
-  for (const ch of word.toLowerCase()) {
-    const v = LETTER_VISEME[ch];
+  for (let i = 0; i < w.length; ) {
+    const tri = DIGRAPH_VISEME[w.slice(i, i + 3)];
+    const di = DIGRAPH_VISEME[w.slice(i, i + 2)];
+    const v = tri || di || LETTER_VISEME[w[i]];
+    i += tri ? 3 : di ? 2 : 1;
     if (v && v !== out[out.length - 1]) out.push(v);
-    if (out.length >= 6) break;
+    if (out.length >= 7) break;
   }
   return out.length ? out : ["viseme_aa"];
 }
@@ -48,8 +67,13 @@ export async function createAvatar3D(container) {
   }
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 10);
+  const camera = new THREE.PerspectiveCamera(26, 1, 0.1, 10);
 
+  // Filmic tone mapping + image-based lighting is most of the difference
+  // between "video game" and "photo" for skin and hair.
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   const size = () => {
     const s = Math.min(container.clientWidth, container.clientHeight) || 260;
@@ -61,13 +85,19 @@ export async function createAvatar3D(container) {
   window.addEventListener("resize", size);
   container.appendChild(renderer.domElement);
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x445577, 1.4));
-  const key = new THREE.DirectionalLight(0xffffff, 1.6);
-  key.position.set(-0.4, 1.9, 1.2);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+  // Soft portrait three-point lighting on top of the environment.
+  const key = new THREE.DirectionalLight(0xfff1e0, 1.5);
+  key.position.set(-0.5, 1.8, 1.3);
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0x88aaff, 0.5);
-  fill.position.set(0.8, 1.5, 0.6);
+  const fill = new THREE.DirectionalLight(0xbfd4ff, 0.5);
+  fill.position.set(0.9, 1.4, 0.8);
   scene.add(fill);
+  const rim = new THREE.DirectionalLight(0xaaccff, 0.8);
+  rim.position.set(0.2, 1.6, -1.2);
+  scene.add(rim);
 
   let gltf;
   try {
@@ -100,13 +130,13 @@ export async function createAvatar3D(container) {
   // Frame the head like a portrait.
   const headPos = new THREE.Vector3();
   (head || model).getWorldPosition(headPos);
-  camera.position.set(0, headPos.y + 0.02, 0.78);
+  camera.position.set(0, headPos.y + 0.02, 0.75);
   camera.lookAt(0, headPos.y + 0.0, 0);
 
   // ---- morph target control: lerp current values toward targets ----------
   const morphTargets = {}; // name -> desired 0..1
   function applyMorphs(dt) {
-    const k = Math.min(1, dt * 14);
+    const k = Math.min(1, dt * 16);
     for (const mesh of morphMeshes) {
       const dict = mesh.morphTargetDictionary;
       for (const name in dict) {
@@ -155,7 +185,8 @@ export async function createAvatar3D(container) {
     const visemes = wordToVisemes(word);
     const per = Math.min(110, Math.max(55, 320 / visemes.length));
     visemes.forEach((name, i) => {
-      visemeQueue.push({ name, at: startAt + i * per, dur: per + 40 });
+      // Slight overlap between consecutive visemes reads as co-articulation.
+      visemeQueue.push({ name, at: startAt + i * per, dur: per + 60 });
     });
   }
 
@@ -169,6 +200,7 @@ export async function createAvatar3D(container) {
     speechText = text || "";
     boundarySeen = false;
     visemeQueue = [];
+    audioSync = null;
     // Some voices never emit word boundaries; after a grace period, schedule
     // the whole reply on an estimated cadence instead.
     clearTimeout(fallbackTimer);
@@ -187,21 +219,75 @@ export async function createAvatar3D(container) {
   let nodUntil = 0;
   let browUntil = 0;
 
-  function speechBoundary(charIdx) {
-    boundarySeen = true;
-    const word = wordAt(charIdx || 0);
-    if (word) queueWordVisemes(word, performance.now());
+  function punctuateWord() {
     const now = performance.now();
     if (Math.random() < 0.14) nodUntil = now + 240;
     if (Math.random() < 0.08) browUntil = now + 420;
   }
 
+  function speechBoundary(charIdx) {
+    boundarySeen = true;
+    const word = wordAt(charIdx || 0);
+    if (word) queueWordVisemes(word, performance.now());
+    punctuateWord();
+  }
+
+  // ---- speech from real audio: the waveform drives the mouth -------------
+  // A viseme timeline is laid out across the clip (weighted by word length,
+  // with pauses at punctuation), then every frame the live RMS level from the
+  // analyser scales how far the mouth actually opens. Loud syllables open
+  // wide, quiet ones barely move — exactly what text-only timing can't do.
+  let audioSync = null;
+
+  function speechAudio(text, audioEl, analyser) {
+    clearTimeout(fallbackTimer);
+    visemeQueue = [];
+    audioSync = {
+      audio: audioEl,
+      analyser,
+      buf: new Uint8Array(analyser.fftSize),
+      timeline: null, // built once audio duration is known
+      text: text || "",
+      lastWord: -1,
+      level: 0,
+    };
+  }
+
+  function buildTimeline(sync) {
+    const dur = sync.audio.duration;
+    if (!isFinite(dur) || dur <= 0) return;
+    const tokens = [...sync.text.matchAll(/[A-Za-z']+|[.,;:!?]+/g)].map((m) => m[0]);
+    let total = 0;
+    const weights = tokens.map((tok) => {
+      const w = /^[A-Za-z']/.test(tok) ? tok.length + 2 : 3.5; // punctuation = pause
+      total += w;
+      return w;
+    });
+    const events = [];
+    let t = 0;
+    tokens.forEach((tok, i) => {
+      const slot = (weights[i] / total) * dur;
+      if (/^[A-Za-z']/.test(tok)) {
+        const visemes = wordToVisemes(tok);
+        const per = (slot * 0.82) / visemes.length; // ~18% closing gap per word
+        visemes.forEach((name, j) => {
+          events.push({ name, at: t + j * per, dur: per * 1.6, word: i });
+        });
+      }
+      t += slot;
+    });
+    sync.timeline = events;
+  }
+
   function speechEnd() {
     clearTimeout(fallbackTimer);
     visemeQueue = [];
+    audioSync = null;
   }
 
-  const VISEME_NAMES = Object.values(LETTER_VISEME).filter((v, i, a) => a.indexOf(v) === i);
+  const VISEME_NAMES = [
+    ...new Set([...Object.values(LETTER_VISEME), ...Object.values(DIGRAPH_VISEME)]),
+  ];
 
   // How much each viseme opens the jaw: open vowels drop it a lot, closed
   // consonants like P/B/M and S barely at all. Uniform jaw was a big part of
@@ -210,31 +296,76 @@ export async function createAvatar3D(container) {
     viseme_aa: 0.55, viseme_E: 0.3, viseme_I: 0.2, viseme_O: 0.45, viseme_U: 0.25,
     viseme_PP: 0.02, viseme_FF: 0.08, viseme_DD: 0.15, viseme_kk: 0.2,
     viseme_CH: 0.12, viseme_SS: 0.05, viseme_nn: 0.12, viseme_RR: 0.18,
+    viseme_TH: 0.14,
   };
 
-  function applyVisemes() {
-    const now = performance.now();
+  function clearMouth() {
     for (const name of VISEME_NAMES) morphTargets[name] = 0;
     morphTargets.jawOpen = 0;
-    visemeQueue = visemeQueue.filter((v) => now < v.at + v.dur);
-    for (const v of visemeQueue) {
-      if (now >= v.at) {
-        const phase = (now - v.at) / v.dur; // 0..1 attack/decay envelope
-        const strength = Math.sin(Math.min(1, phase) * Math.PI) * 0.9;
-        morphTargets[v.name] = Math.max(morphTargets[v.name] || 0, strength);
-        morphTargets.jawOpen = Math.max(
-          morphTargets.jawOpen,
-          strength * (VISEME_JAW[v.name] ?? 0.2),
-        );
-      }
-    }
+  }
+
+  function setViseme(name, strength) {
+    morphTargets[name] = Math.max(morphTargets[name] || 0, strength);
+    morphTargets.jawOpen = Math.max(
+      morphTargets.jawOpen,
+      strength * (VISEME_JAW[name] ?? 0.2),
+    );
+  }
+
+  function mouthShaping() {
     // Lips round on O/U, press on P/B/M — co-articulation cues.
     morphTargets.mouthPucker =
       Math.max(morphTargets.viseme_O || 0, morphTargets.viseme_U || 0) * 0.5;
     morphTargets.mouthPressLeft = (morphTargets.viseme_PP || 0) * 0.6;
     morphTargets.mouthPressRight = (morphTargets.viseme_PP || 0) * 0.6;
-    // Word-emphasis brow raise scheduled from speechBoundary.
-    morphTargets.browInnerUp = now < browUntil ? 0.35 : 0;
+    // Word-emphasis brow raise.
+    morphTargets.browInnerUp = performance.now() < browUntil ? 0.35 : 0;
+  }
+
+  function applyVisemesTimed() {
+    const now = performance.now();
+    clearMouth();
+    visemeQueue = visemeQueue.filter((v) => now < v.at + v.dur);
+    for (const v of visemeQueue) {
+      if (now >= v.at) {
+        const phase = (now - v.at) / v.dur; // 0..1 attack/decay envelope
+        setViseme(v.name, Math.sin(Math.min(1, phase) * Math.PI) * 0.9);
+      }
+    }
+    mouthShaping();
+  }
+
+  function applyVisemesAudio(sync) {
+    clearMouth();
+    if (!sync.timeline) buildTimeline(sync);
+    // Live loudness, smoothed a little so the jaw doesn't flutter.
+    sync.analyser.getByteTimeDomainData(sync.buf);
+    let sum = 0;
+    for (let i = 0; i < sync.buf.length; i++) {
+      const d = (sync.buf[i] - 128) / 128;
+      sum += d * d;
+    }
+    const rms = Math.sqrt(sum / sync.buf.length);
+    sync.level += (rms - sync.level) * 0.35;
+    const loud = Math.min(1, sync.level * 7);
+
+    if (sync.timeline) {
+      const t = sync.audio.currentTime;
+      for (const v of sync.timeline) {
+        if (t >= v.at && t < v.at + v.dur) {
+          const phase = (t - v.at) / v.dur;
+          const env = Math.sin(Math.min(1, phase) * Math.PI);
+          setViseme(v.name, env * (0.25 + loud * 0.85));
+          if (v.word !== sync.lastWord) {
+            sync.lastWord = v.word;
+            punctuateWord();
+          }
+        }
+      }
+    }
+    // The waveform always gets a vote, so lips never freeze mid-sound.
+    morphTargets.jawOpen = Math.max(morphTargets.jawOpen, loud * 0.45);
+    mouthShaping();
   }
 
   // ---- conversation modes ------------------------------------------------
@@ -286,7 +417,7 @@ export async function createAvatar3D(container) {
       set(eyeL, -0.18, 0.12, 0);
       set(eyeR, -0.18, 0.12, 0);
     } else if (mode === "speaking") {
-      // Word-emphasis nod scheduled from speechBoundary, on top of drift.
+      // Word-emphasis nod scheduled from speech, on top of drift.
       const nodPhase = Math.max(0, nodUntil - performance.now()) / 240;
       const nod = Math.sin(nodPhase * Math.PI) * 0.045;
       set(head, nod + driftX * 1.5, driftY * 1.5, breathe);
@@ -303,12 +434,15 @@ export async function createAvatar3D(container) {
 
   renderer.setAnimationLoop(() => {
     const dt = clock.getDelta();
-    if (mode === "speaking") applyVisemes();
+    if (mode === "speaking") {
+      if (audioSync) applyVisemesAudio(audioSync);
+      else applyVisemesTimed();
+    }
     pose(clock.elapsedTime);
     applyMorphs(dt);
     renderer.render(scene, camera);
   });
 
   setMode("idle");
-  return { setMode, speechStart, speechBoundary, speechEnd };
+  return { setMode, speechStart, speechBoundary, speechAudio, speechEnd };
 }
