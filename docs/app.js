@@ -1,4 +1,4 @@
-// Static (GitHub Pages) build of Ivy: the whole app runs in the browser.
+// Static (GitHub Pages) build of Max: the whole app runs in the browser.
 // The learning engine lives here, progress is kept in localStorage, and the
 // Claude API is called directly with the visitor's own key.
 //
@@ -275,8 +275,10 @@ async function sendToAgent(transcript) {
   if (transcript) {
     recordUserSpeech(transcript);
     userText = transcript;
-  } else if (lesson && lesson.id !== "free") {
+  } else if (lesson && lesson.id !== "free" && lesson.agenda.length) {
     userText = `Please greet me warmly and begin the lesson now, starting with the first step of the agenda. My name is ${currentUser.name}.`;
+  } else if (lesson && lesson.id === "custom") {
+    userText = `Please greet me warmly and start a lively conversation about "${lesson.title}". My name is ${currentUser.name}.`;
   } else {
     userText = `Please greet me warmly and start a simple conversation. I just opened the app. My name is ${currentUser.name}.`;
   }
@@ -648,7 +650,7 @@ stopBtn.addEventListener("click", () => stopConversation());
 
 // ---------------------------------------------------------------------------
 // Guided lessons — specific, real-life scenarios, each with a visible agenda
-// that Ivy walks through step by step. The current step lights up as she
+// that Max walks through step by step. The current step lights up as he
 // signals it with a hidden [STAGE:n] tag on each reply.
 // ---------------------------------------------------------------------------
 const LESSONS = [
@@ -706,13 +708,23 @@ const LESSONS = [
     "Ask about their weekend",
     "Make a plan for next time",
   ] },
-  { id: "free", title: "Free chat (Ivy picks)", agenda: [] },
+  { id: "free", title: "Free chat (Max picks)", agenda: [] },
 ];
 
+// The learner can also type their own topic; it's kept as a free-form lesson
+// with no fixed agenda so Max just chats about whatever they chose.
+let customTopic = localStorage.getItem("ivy_topic") || "";
+
 let selectedLesson = localStorage.getItem("ivy_lesson") || LESSONS[0].id;
-if (!LESSONS.some((l) => l.id === selectedLesson)) selectedLesson = LESSONS[0].id;
+const knownLesson = (id) => id === "custom" || LESSONS.some((l) => l.id === id);
+if (!knownLesson(selectedLesson) || (selectedLesson === "custom" && !customTopic)) {
+  selectedLesson = LESSONS[0].id;
+}
 
 function currentLesson() {
+  if (selectedLesson === "custom" && customTopic) {
+    return { id: "custom", title: customTopic, agenda: [] };
+  }
   return LESSONS.find((l) => l.id === selectedLesson) || null;
 }
 
@@ -743,7 +755,7 @@ function renderAgenda() {
   });
 }
 
-// Highlight the step Ivy is on: earlier steps done, current one active.
+// Highlight the step Max is on: earlier steps done, current one active.
 function setStage(n) {
   [...agendaList.children].forEach((li, i) => {
     const idx = i + 1;
@@ -752,19 +764,44 @@ function setStage(n) {
   });
 }
 
-for (const lesson of LESSONS) {
-  const chip = document.createElement("button");
-  chip.type = "button";
-  chip.className = "topic-chip" + (lesson.id === selectedLesson ? " selected" : "");
-  chip.textContent = lesson.title;
-  chip.addEventListener("click", () => {
-    selectedLesson = lesson.id;
-    localStorage.setItem("ivy_lesson", lesson.id);
-    for (const c of topicChipsEl.children) c.classList.toggle("selected", c === chip);
-    renderAgenda();
-  });
-  topicChipsEl.appendChild(chip);
+function selectLesson(id) {
+  selectedLesson = id;
+  localStorage.setItem("ivy_lesson", id);
+  renderTopicChips();
+  renderAgenda();
 }
+
+function renderTopicChips() {
+  topicChipsEl.innerHTML = "";
+  for (const lesson of LESSONS) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "topic-chip" + (lesson.id === selectedLesson ? " selected" : "");
+    chip.textContent = lesson.title;
+    chip.addEventListener("click", () => selectLesson(lesson.id));
+    topicChipsEl.appendChild(chip);
+  }
+  // Custom topic the learner types themselves.
+  const custom = document.createElement("button");
+  custom.type = "button";
+  custom.className = "topic-chip" + (selectedLesson === "custom" ? " selected" : "");
+  custom.textContent = customTopic ? `🎙 ${customTopic}` : "＋ My own topic…";
+  custom.title = "Type a topic you want to talk about";
+  custom.addEventListener("click", () => {
+    const topic = window.prompt(
+      "What would you like to talk about?",
+      customTopic || ""
+    );
+    if (topic === null) return; // cancelled
+    const trimmed = topic.trim().slice(0, 80);
+    if (!trimmed) return;
+    customTopic = trimmed;
+    localStorage.setItem("ivy_topic", customTopic);
+    selectLesson("custom");
+  });
+  topicChipsEl.appendChild(custom);
+}
+renderTopicChips();
 renderAgenda();
 
 // Pull the hidden [STAGE:n][FEEL:x] tags off a reply: STAGE advances the

@@ -351,9 +351,12 @@ app.post("/api/chat", async (req, res) => {
     if (transcript) {
       newlyMastered = recordUserSpeech(user, transcript);
       userText = transcript;
-    } else if (lesson.title) {
+    } else if (lesson.title && lesson.agenda.length) {
       // Conversation opener for a guided lesson — start at the first step.
       userText = `Please greet me warmly and begin the lesson now, starting with the first step of the agenda. My name is ${user.name}.`;
+    } else if (lesson.title) {
+      // Free-form topic the learner chose — dive straight into that subject.
+      userText = `Please greet me warmly and start a lively conversation about "${lesson.title}". My name is ${user.name}.`;
     } else {
       // Free-chat opener — the agent greets first.
       userText = `Please greet me warmly and start a simple conversation. I just opened the app. My name is ${user.name}.`;
