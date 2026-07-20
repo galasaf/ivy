@@ -190,7 +190,7 @@ voiceSelect.addEventListener("change", () => {
 let audioCtx = null;
 let currentAudio = null;
 
-async function playWithLipSync(text, blob) {
+async function playWithLipSync(text, blob, alignment) {
   audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === "suspended") await audioCtx.resume();
   const audio = new Audio(URL.createObjectURL(blob));
@@ -204,7 +204,7 @@ async function playWithLipSync(text, blob) {
     audio.onended = resolve;
     audio.onerror = resolve;
     setState("speaking", "Max is speaking…");
-    if (avatar3d) avatar3d.speechAudio(text, audio, analyser);
+    if (avatar3d) avatar3d.speechAudio(text, audio, analyser, alignment);
     startMouthAnimation();
     audio.play().catch(resolve);
   });
@@ -224,15 +224,18 @@ async function fetchStudioAudio(text, voiceId) {
     const detail = await res.json().catch(() => ({}));
     throw new Error(detail.error || "Studio voice unavailable.");
   }
-  return res.blob();
+  const data = await res.json();
+  const bytes = Uint8Array.from(atob(data.audio_base64), (c) => c.charCodeAt(0));
+  const blob = new Blob([bytes], { type: "audio/mpeg" });
+  return { blob, alignment: data.alignment || null };
 }
 
 async function speak(text) {
   const sel = voiceSelect.value;
   if (sel.startsWith("11labs:")) {
     try {
-      const blob = await fetchStudioAudio(text, sel.slice(7));
-      return await playWithLipSync(text, blob);
+      const { blob, alignment } = await fetchStudioAudio(text, sel.slice(7));
+      return await playWithLipSync(text, blob, alignment);
     } catch (err) {
       console.warn("Studio voice failed, using browser voice:", err);
       statusEl.textContent = "Studio voice unavailable — using a browser voice.";

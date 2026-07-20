@@ -430,7 +430,7 @@ voiceSelect.addEventListener("change", () => {
 let audioCtx = null;
 let currentAudio = null;
 
-async function playWithLipSync(text, blob) {
+async function playWithLipSync(text, blob, alignment) {
   audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === "suspended") await audioCtx.resume();
   const audio = new Audio(URL.createObjectURL(blob));
@@ -444,7 +444,7 @@ async function playWithLipSync(text, blob) {
     audio.onended = resolve;
     audio.onerror = resolve;
     setState("speaking", "Max is speaking…");
-    if (avatar3d) avatar3d.speechAudio(text, audio, analyser);
+    if (avatar3d) avatar3d.speechAudio(text, audio, analyser, alignment);
     startMouthAnimation();
     audio.play().catch(resolve);
   });
@@ -490,8 +490,10 @@ if (voiceKeyBtn) {
 async function fetchStudioAudio(text, voiceId) {
   const key = studioKey();
   if (!key) throw new Error("No ElevenLabs key.");
+  // The with-timestamps endpoint returns the audio plus per-character timing,
+  // which the avatar uses for true lip-sync.
   const res = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_64`,
+    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps?output_format=mp3_44100_64`,
     {
       method: "POST",
       headers: { "xi-api-key": key, "content-type": "application/json" },
@@ -507,15 +509,27 @@ async function fetchStudioAudio(text, voiceId) {
     throw new Error("ElevenLabs rejected the key.");
   }
   if (!res.ok) throw new Error("Studio voice unavailable.");
-  return res.blob();
+  const data = await res.json();
+  const bytes = Uint8Array.from(atob(data.audio_base64), (c) => c.charCodeAt(0));
+  const blob = new Blob([bytes], { type: "audio/mpeg" });
+  const a = data.alignment || data.normalized_alignment;
+  const alignment =
+    a && a.characters
+      ? {
+          characters: a.characters,
+          starts: a.character_start_times_seconds,
+          ends: a.character_end_times_seconds,
+        }
+      : null;
+  return { blob, alignment };
 }
 
 async function speak(text) {
   const sel = voiceSelect.value;
   if (sel.startsWith("11labs:")) {
     try {
-      const blob = await fetchStudioAudio(text, sel.slice(7));
-      return await playWithLipSync(text, blob);
+      const { blob, alignment } = await fetchStudioAudio(text, sel.slice(7));
+      return await playWithLipSync(text, blob, alignment);
     } catch (err) {
       console.warn("Studio voice failed, using browser voice:", err);
       statusEl.textContent = "Studio voice unavailable — using a browser voice.";

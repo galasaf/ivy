@@ -399,8 +399,10 @@ app.post("/api/tts", async (req, res) => {
     "pNInz6obpgDQGcFmaJgB"; // Adam
   if (!text.trim()) return res.status(400).json({ error: "Nothing to say." });
   try {
+    // with-timestamps returns JSON: base64 audio + per-character timing that
+    // the avatar uses for true lip-sync.
     const r = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voice}?output_format=mp3_44100_64`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${voice}/with-timestamps?output_format=mp3_44100_64`,
       {
         method: "POST",
         headers: { "xi-api-key": key, "content-type": "application/json" },
@@ -415,8 +417,19 @@ app.post("/api/tts", async (req, res) => {
       console.error("TTS provider error:", r.status, await r.text().catch(() => ""));
       return res.status(502).json({ error: "The voice service rejected the request." });
     }
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.send(Buffer.from(await r.arrayBuffer()));
+    const data = await r.json();
+    const a = data.alignment || data.normalized_alignment;
+    res.json({
+      audio_base64: data.audio_base64,
+      alignment:
+        a && a.characters
+          ? {
+              characters: a.characters,
+              starts: a.character_start_times_seconds,
+              ends: a.character_end_times_seconds,
+            }
+          : null,
+    });
   } catch (err) {
     console.error("TTS error:", err);
     res.status(502).json({ error: "Could not reach the voice service." });

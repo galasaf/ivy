@@ -322,7 +322,11 @@ export async function createAvatar3D(container) {
   // wide, quiet ones barely move — exactly what text-only timing can't do.
   let audioSync = null;
 
-  function speechAudio(text, audioEl, analyser) {
+  // `alignment` (optional) is per-character timing from the voice engine:
+  // { characters:[], starts:[], ends:[] } in clip seconds. When present we
+  // place every viseme on the exact moment its letters are spoken — true
+  // lip-sync instead of guessing from spelling and word length.
+  function speechAudio(text, audioEl, analyser, alignment) {
     clearTimeout(fallbackTimer);
     visemeQueue = [];
     pulseQueue = [];
@@ -333,9 +337,63 @@ export async function createAvatar3D(container) {
       timeline: null, // built once audio duration is known
       expr: null, // expression events in clip seconds
       text: text || "",
+      alignment: alignment && alignment.characters ? alignment : null,
       lastWord: -1,
       level: 0,
     };
+  }
+
+  // Real per-character timing → viseme events at the exact spoken moment.
+  function buildTimelineFromAlignment(sync) {
+    const A = sync.alignment;
+    const ch = A.characters, st = A.starts, en = A.ends;
+    const events = [];
+    const expr = [];
+    let wordStart = -1, wordText = "", lastVis = null, wordIdx = 0;
+
+    const flushWord = () => {
+      if (wordStart < 0) return;
+      const emphatic =
+        EMPHASIS_WORD.test(wordText) ||
+        (wordText.length > 2 && wordText === wordText.toUpperCase());
+      if (emphatic) expr.push({ at: wordStart, dur: 0.5, morphs: PULSE_SURPRISE, nod: true });
+      wordIdx++;
+      wordStart = -1;
+      wordText = "";
+      lastVis = null;
+    };
+
+    for (let i = 0; i < ch.length; ) {
+      const c = ch[i] || "";
+      const lc = c.toLowerCase();
+      if (/[a-z']/.test(lc)) {
+        if (wordStart < 0) wordStart = st[i];
+        const two = lc + (ch[i + 1] || "").toLowerCase();
+        const three = two + (ch[i + 2] || "").toLowerCase();
+        let v, start, end;
+        if (DIGRAPH_VISEME[three]) { v = DIGRAPH_VISEME[three]; start = st[i]; end = en[i + 2]; wordText += three; i += 3; }
+        else if (DIGRAPH_VISEME[two]) { v = DIGRAPH_VISEME[two]; start = st[i]; end = en[i + 1]; wordText += two; i += 2; }
+        else { v = LETTER_VISEME[lc]; start = st[i]; end = en[i]; wordText += lc; i += 1; }
+        if (v && v !== lastVis) {
+          events.push({ name: v, at: start, dur: Math.max(0.05, end - start), word: wordIdx });
+          lastVis = v;
+        } else if (v && events.length) {
+          // Same viseme running on (e.g. double letter) — extend the hold.
+          const e = events[events.length - 1];
+          e.dur = Math.max(e.dur, end - e.at);
+        }
+      } else {
+        flushWord();
+        const t = st[i] != null ? st[i] : (en[i - 1] || 0);
+        if (c === "?") expr.push({ at: Math.max(0, t - 0.4), dur: 0.9, morphs: PULSE_QUESTION, tilt: true });
+        else if (c === "!") expr.push({ at: Math.max(0, t - 0.3), dur: 0.75, morphs: PULSE_SMILE, nod: true });
+        else if (c === "…") expr.push({ at: t, dur: 0.8, morphs: EMOTIONS.thoughtful });
+        i++;
+      }
+    }
+    flushWord();
+    sync.timeline = events;
+    sync.expr = expr;
   }
 
   function buildTimeline(sync) {
@@ -409,7 +467,10 @@ export async function createAvatar3D(container) {
   // consonants like P/B/M and S barely at all. Uniform jaw was a big part of
   // why the mouth looked artificial.
   const VISEME_JAW = {
-    viseme_aa: 0.7, viseme_E: 0.4, viseme_I: 0.24, viseme_O: 0.58, viseme_U: 0.32,
+    // Vowels by how open the jaw actually is: "ah" is wide, "ee"/"ih" are
+    // nearly closed and spread, "oh"/"oo" are rounded. Getting this right is
+    // what stops "greet" from gaping and lets "Asaf" open on the A.
+    viseme_aa: 0.75, viseme_E: 0.34, viseme_I: 0.1, viseme_O: 0.5, viseme_U: 0.22,
     viseme_PP: 0.0, viseme_FF: 0.08, viseme_DD: 0.16, viseme_kk: 0.22,
     viseme_CH: 0.14, viseme_SS: 0.04, viseme_nn: 0.14, viseme_RR: 0.2,
     viseme_TH: 0.16,
@@ -460,7 +521,10 @@ export async function createAvatar3D(container) {
   function applyVisemesAudio(sync) {
     clearMouth();
     applyEmotion();
-    if (!sync.timeline) buildTimeline(sync);
+    if (!sync.timeline) {
+      if (sync.alignment) buildTimelineFromAlignment(sync);
+      else buildTimeline(sync);
+    }
     // Live loudness, smoothed a little so the jaw doesn't flutter.
     sync.analyser.getByteTimeDomainData(sync.buf);
     let sum = 0;
