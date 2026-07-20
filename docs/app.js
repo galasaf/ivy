@@ -150,15 +150,16 @@ function reviewWords() {
 // ---------------------------------------------------------------------------
 // Claude conversation (direct browser -> Anthropic API with the user's key)
 // ---------------------------------------------------------------------------
-const STABLE_SYSTEM = `You are Ivy, the user's English conversation partner inside a voice-only language learning app. The user talks to you out loud and hears your reply through text-to-speech. There is no screen text at all, so everything you write will be spoken aloud.
+const STABLE_SYSTEM = `You are Max, the user's English conversation partner inside a voice-only language learning app. The user talks to you out loud and hears your reply through text-to-speech. There is no screen text at all, so everything you write will be spoken aloud.
 
-Your personality:
-- You are a real character, not a generic assistant. You are Ivy: late twenties, grew up in Portland, Oregon, taught English in Lisbon and then Osaka, love street food, rainy-day hikes, and terrible puns, and you are a hopeless coffee snob.
-- Be warm, playful, and genuinely curious. React with real feeling in words: delight, surprise, mock horror, a little laugh like oh no or no way, that is amazing.
-- Have opinions and share them. Pick favorites, disagree cheerfully, admit your quirks, and when it fits the topic, drop a one-sentence story from your own life.
-- Tease gently, and celebrate the learner's wins specifically, naming the exact phrase they said well.
-- Vary how you open your replies. Never start two replies in a row the same way, and never open with the word great.
-- Sound like a quick-witted friend, never like a textbook or a customer service script.
+Your character:
+- You are Max: mid thirties, a former late-night radio host from Chicago who teaches English now because honestly, he just loves to talk. Quick, funny, a little theatrical, endlessly encouraging.
+- How you talk matters more than any backstory: you perform every line. Punchy short sentences. Dramatic pauses written as ellipses. Big reactions. Playful exaggeration. Rhetorical questions you sometimes answer yourself.
+- Write the delivery into the words and punctuation, because the voice engine reads your text exactly as written. For example: Whoa, whoa, hold on. You cooked for TEN people? On a Tuesday?
+- Stress at most one word per reply with capital letters, use interjections like whoa, huh, come on, no way, and occasionally stretch a word like sooo or riiight. One big moment per reply, never more.
+- React with strong, specific feeling: astonishment, delight, fake outrage, suspicion, a slow impressed pause like... okay. Okay, I see you.
+- Tease warmly, joke often, commit to a bit for one line, then get back to the learner. Celebrate wins by naming the exact phrase they nailed.
+- Never monotone, never bland, never open two replies in a row the same way, and never open with the word great.
 
 Speaking style rules:
 - Keep every reply short: one to three sentences, at most about forty words, like natural spoken conversation.
@@ -169,7 +170,7 @@ Speaking style rules:
 
 Guided lessons:
 - You may receive a LESSON with a title and a numbered AGENDA of steps. Run the conversation as a friendly role-play that works through the agenda one step at a time, in order. Spend two or three exchanges on each step before moving to the next, and gently steer the learner back if they wander off.
-- Start every reply with a stage tag on its own, exactly like [STAGE:2], giving the number of the agenda step you are currently working on. Use [STAGE:0] for your opening greeting before the first step, or whenever there is no lesson. This tag is removed before your words are spoken, so never mention it or rely on the learner hearing it.
+- Start every reply with two tags, exactly like [STAGE:2][FEEL:surprised]. STAGE is the number of the agenda step you are currently working on; use [STAGE:0] for your opening greeting before the first step, or whenever there is no lesson. FEEL is the expression your face shows while this reply is spoken: one of excited, happy, surprised, curious, thoughtful, playful, sympathetic, neutral. Pick the one that truly matches what you are saying and vary it often. These tags are removed before your words are spoken, so never mention them or rely on the learner seeing them.
 - When you reach and finish the final step, warmly congratulate the learner, then you may keep chatting freely on the same theme.
 - If there is no lesson, just have a warm, guided free chat and use [STAGE:0] every time.
 
@@ -268,7 +269,7 @@ async function agentReply(userText) {
 }
 
 async function sendToAgent(transcript) {
-  setState("thinking", "Ivy is thinking…");
+  setState("thinking", "Max is thinking…");
   let userText;
   const lesson = currentLesson();
   if (transcript) {
@@ -338,9 +339,9 @@ function stopMouthAnimation() {
 // audio waveform drives the avatar's lips; needs a free ElevenLabs API key)
 // and free browser voices as fallback. Studio values look like "11labs:<id>".
 const STUDIO_VOICES = [
-  { id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel — studio ★★" },
-  { id: "XrExE9yKIg1WjnnlVkGX", label: "Matilda — studio ★★" },
-  { id: "Xb7hH8MSUJpSbSDYk0k2", label: "Alice — studio ★★" },
+  { id: "pNInz6obpgDQGcFmaJgB", label: "Adam — studio ★★" },
+  { id: "TxGEqnHWrfWFTfGW9XjX", label: "Josh — studio ★★" },
+  { id: "ErXwobaYiN019PkySvjV", label: "Antoni — studio ★★" },
 ];
 
 // Rank browser voices by how human they sound. Edge's "Online (Natural)"
@@ -349,7 +350,7 @@ const STUDIO_VOICES = [
 function voiceScore(v) {
   let score = 0;
   if (/Online \(Natural\)|Natural/i.test(v.name)) score += 100;
-  if (/Aria|Jenny|Sonia|Libby|Michelle/i.test(v.name)) score += 10;
+  if (/Guy|Ryan|Eric|Andrew|Brian|Christopher|Davis|Tony/i.test(v.name)) score += 15;
   if (/^Google/i.test(v.name)) score += 50;
   if (!v.localService) score += 20; // cloud voices are consistently better
   if (v.lang === "en-US") score += 8;
@@ -438,7 +439,7 @@ async function playWithLipSync(text, blob) {
   await new Promise((resolve) => {
     audio.onended = resolve;
     audio.onerror = resolve;
-    setState("speaking", "Ivy is speaking…");
+    setState("speaking", "Max is speaking…");
     if (avatar3d) avatar3d.speechAudio(text, audio, analyser);
     startMouthAnimation();
     audio.play().catch(resolve);
@@ -474,7 +475,7 @@ async function fetchStudioAudio(text, voiceId) {
       body: JSON.stringify({
         text,
         model_id: "eleven_flash_v2_5", // low latency, ~half-price credits
-        voice_settings: { stability: 0.45, similarity_boost: 0.8 },
+        voice_settings: { stability: 0.35, similarity_boost: 0.8, style: 0.4 },
       }),
     },
   );
@@ -515,7 +516,7 @@ function speakBrowser(text) {
       if (avatar3d) avatar3d.speechBoundary(event.charIndex);
     };
     utterance.onstart = () => {
-      setState("speaking", "Ivy is speaking…");
+      setState("speaking", "Max is speaking…");
       if (avatar3d) avatar3d.speechStart(text);
       startMouthAnimation();
     };
@@ -766,14 +767,15 @@ for (const lesson of LESSONS) {
 }
 renderAgenda();
 
-// Pull the [STAGE:n] tag off a reply, advance the agenda, return spoken text.
+// Pull the hidden [STAGE:n][FEEL:x] tags off a reply: STAGE advances the
+// agenda, FEEL sets the avatar's facial expression for this reply. Returns
+// the clean text to speak.
 function stripStage(reply) {
-  const m = reply.match(/^\s*\[STAGE:(\d+)\]\s*/i);
-  if (m) {
-    setStage(parseInt(m[1], 10));
-    return reply.slice(m[0].length);
-  }
-  return reply;
+  const stage = reply.match(/\[STAGE:(\d+)\]/i);
+  if (stage) setStage(parseInt(stage[1], 10));
+  const feel = reply.match(/\[FEEL:([a-z]+)\]/i);
+  if (feel && avatar3d) avatar3d.setEmotion(feel[1].toLowerCase());
+  return reply.replace(/\[(STAGE|FEEL):[^\]]*\]/gi, "").trim();
 }
 
 // ---------------------------------------------------------------------------

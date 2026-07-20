@@ -1,11 +1,12 @@
-// 3D avatar for Ivy: a realistic Avaturn-exported human model (from the
-// TalkingHead project's examples, non-commercial use) with Oculus viseme and
-// ARKit blendshape morph targets, rendered with three.js.
+// 3D avatar for Max: a realistic photo-scanned human model (Avatar SDK
+// example from the TalkingHead project, non-commercial use) with Oculus
+// viseme and ARKit blendshape morph targets, rendered with three.js.
 //
 // createAvatar3D(container) resolves to an API object, or null if WebGL or
 // the model fails — callers keep the SVG avatar as fallback in that case.
 //
 //   api.setMode("idle" | "listening" | "thinking" | "speaking")
+//   api.setEmotion("surprised" | "playful" | …) — face to hold this reply
 //   api.speechStart(fullText)   — a reply is about to be spoken (browser TTS)
 //   api.speechBoundary(charIdx) — speech synthesis reached a word
 //   api.speechAudio(text, audioEl, analyser) — a reply plays from an <audio>
@@ -200,6 +201,7 @@ export async function createAvatar3D(container) {
     speechText = text || "";
     boundarySeen = false;
     visemeQueue = [];
+    pulseQueue = [];
     audioSync = null;
     // Some voices never emit word boundaries; after a grace period, schedule
     // the whole reply on an estimated cadence instead.
@@ -218,6 +220,7 @@ export async function createAvatar3D(container) {
   // raise, the way people naturally emphasize speech.
   let nodUntil = 0;
   let browUntil = 0;
+  let tiltUntil = 0;
 
   function punctuateWord() {
     const now = performance.now();
@@ -225,10 +228,85 @@ export async function createAvatar3D(container) {
     if (Math.random() < 0.08) browUntil = now + 420;
   }
 
+  // ---- expression acting -------------------------------------------------
+  // Two layers on top of lip-sync. A per-reply baseline emotion (set from the
+  // hidden [FEEL:x] tag on each reply) holds while the reply is spoken, and
+  // short "pulses" fire at meaningful moments: brows shoot up on a question,
+  // a grin lands on an exclamation, eyes widen on emphasis words. This is
+  // what makes the face look like it means what it's saying.
+  const EMOTIONS = {
+    neutral: { mouthSmileLeft: 0.15, mouthSmileRight: 0.15 },
+    happy: { mouthSmileLeft: 0.45, mouthSmileRight: 0.45, cheekSquintLeft: 0.25, cheekSquintRight: 0.25 },
+    excited: { mouthSmileLeft: 0.4, mouthSmileRight: 0.4, browInnerUp: 0.35, browOuterUpLeft: 0.4, browOuterUpRight: 0.4, eyeWideLeft: 0.25, eyeWideRight: 0.25 },
+    surprised: { browInnerUp: 0.55, browOuterUpLeft: 0.6, browOuterUpRight: 0.6, eyeWideLeft: 0.5, eyeWideRight: 0.5, mouthSmileLeft: 0.15, mouthSmileRight: 0.15 },
+    curious: { browOuterUpLeft: 0.55, browDownRight: 0.15, eyeSquintRight: 0.2, mouthSmileLeft: 0.25, mouthSmileRight: 0.1 },
+    thoughtful: { browDownLeft: 0.3, browDownRight: 0.2, eyeSquintLeft: 0.2, eyeSquintRight: 0.2, mouthPressLeft: 0.3, mouthPressRight: 0.3 },
+    playful: { mouthSmileLeft: 0.5, mouthSmileRight: 0.2, browOuterUpLeft: 0.45, eyeSquintRight: 0.25 },
+    sympathetic: { browInnerUp: 0.5, mouthSmileLeft: 0.15, mouthSmileRight: 0.15, mouthFrownLeft: 0.12, mouthFrownRight: 0.12 },
+  };
+  const EMOTION_MORPHS = [...new Set(Object.values(EMOTIONS).flatMap(Object.keys))];
+
+  let emotion = "neutral";
+  function setEmotion(name) {
+    emotion = EMOTIONS[name] ? name : "neutral";
+  }
+
+  const PULSE_SURPRISE = { browInnerUp: 0.5, browOuterUpLeft: 0.55, browOuterUpRight: 0.55, eyeWideLeft: 0.45, eyeWideRight: 0.45 };
+  const PULSE_SMILE = { mouthSmileLeft: 0.55, mouthSmileRight: 0.55, cheekSquintLeft: 0.35, cheekSquintRight: 0.35 };
+  const PULSE_QUESTION = { browInnerUp: 0.45, browOuterUpLeft: 0.55, browOuterUpRight: 0.55, eyeWideLeft: 0.2, eyeWideRight: 0.2 };
+  const EMPHASIS_WORD =
+    /^(wow|whoa|no|way|really|amazing|incredible|love|never|huge|best|worst|seriously|unbelievable|perfect|exactly|yes|ten|hundred|thousand)$/i;
+
+  // Pulses for browser-TTS mode live in wall-clock ms; audio mode builds its
+  // own list in clip seconds inside the timeline.
+  let pulseQueue = []; // [{at, dur, morphs}]
+
+  function schedulePulse(morphs, dur, delay = 0) {
+    pulseQueue.push({ at: performance.now() + delay, dur, morphs });
+  }
+
+  function applyPulses() {
+    const now = performance.now();
+    pulseQueue = pulseQueue.filter((p) => now < p.at + p.dur);
+    for (const p of pulseQueue) {
+      if (now < p.at) continue;
+      const env = Math.sin(Math.min(1, (now - p.at) / p.dur) * Math.PI);
+      for (const m in p.morphs) {
+        morphTargets[m] = Math.max(morphTargets[m] || 0, p.morphs[m] * env);
+      }
+    }
+  }
+
+  function applyEmotion() {
+    const e = EMOTIONS[emotion];
+    for (const m of EMOTION_MORPHS) morphTargets[m] = e[m] || 0;
+  }
+
+  // Sentence-shape reactions for browser TTS: peek at the punctuation that
+  // follows the word the synthesizer just reached.
+  function wordExpression(word, followingPunct) {
+    const now = performance.now();
+    if (EMPHASIS_WORD.test(word)) {
+      schedulePulse(PULSE_SURPRISE, 500);
+      nodUntil = now + 260;
+    }
+    if (followingPunct.includes("?")) {
+      schedulePulse(PULSE_QUESTION, 700, 100);
+      tiltUntil = now + 800;
+    } else if (followingPunct.includes("!")) {
+      schedulePulse(PULSE_SMILE, 650, 80);
+      nodUntil = now + 280;
+    }
+  }
+
   function speechBoundary(charIdx) {
     boundarySeen = true;
     const word = wordAt(charIdx || 0);
-    if (word) queueWordVisemes(word, performance.now());
+    if (word) {
+      queueWordVisemes(word, performance.now());
+      const after = speechText.slice(charIdx + word.length, charIdx + word.length + 3);
+      wordExpression(word, after);
+    }
     punctuateWord();
   }
 
@@ -242,11 +320,13 @@ export async function createAvatar3D(container) {
   function speechAudio(text, audioEl, analyser) {
     clearTimeout(fallbackTimer);
     visemeQueue = [];
+    pulseQueue = [];
     audioSync = {
       audio: audioEl,
       analyser,
       buf: new Uint8Array(analyser.fftSize),
       timeline: null, // built once audio duration is known
+      expr: null, // expression events in clip seconds
       text: text || "",
       lastWord: -1,
       level: 0,
@@ -256,7 +336,7 @@ export async function createAvatar3D(container) {
   function buildTimeline(sync) {
     const dur = sync.audio.duration;
     if (!isFinite(dur) || dur <= 0) return;
-    const tokens = [...sync.text.matchAll(/[A-Za-z']+|[.,;:!?]+/g)].map((m) => m[0]);
+    const tokens = [...sync.text.matchAll(/[A-Za-z']+|[.,;:!?…]+/g)].map((m) => m[0]);
     let total = 0;
     const weights = tokens.map((tok) => {
       const w = /^[A-Za-z']/.test(tok) ? tok.length + 2 : 3.5; // punctuation = pause
@@ -264,6 +344,7 @@ export async function createAvatar3D(container) {
       return w;
     });
     const events = [];
+    const expr = [];
     let t = 0;
     tokens.forEach((tok, i) => {
       const slot = (weights[i] / total) * dur;
@@ -273,15 +354,35 @@ export async function createAvatar3D(container) {
         visemes.forEach((name, j) => {
           events.push({ name, at: t + j * per, dur: per * 1.6, word: i });
         });
+        // Emphasis words get wide eyes and a nod right when they land.
+        if (EMPHASIS_WORD.test(tok)) {
+          expr.push({ at: t, dur: 0.55, morphs: PULSE_SURPRISE, nod: true });
+        }
+        // Words stressed in CAPS by the script get the same treatment.
+        else if (tok.length > 2 && tok === tok.toUpperCase()) {
+          expr.push({ at: t, dur: 0.5, morphs: PULSE_SURPRISE, nod: true });
+        }
+      } else {
+        // Sentence shape: brows rise into a question, a grin lands on an
+        // exclamation, ellipses read as a thinking beat.
+        if (tok.includes("?")) {
+          expr.push({ at: Math.max(0, t - 0.45), dur: 0.9, morphs: PULSE_QUESTION, tilt: true });
+        } else if (tok.includes("!")) {
+          expr.push({ at: Math.max(0, t - 0.35), dur: 0.75, morphs: PULSE_SMILE, nod: true });
+        } else if (tok.includes("…") || tok.includes("...")) {
+          expr.push({ at: t, dur: 0.8, morphs: EMOTIONS.thoughtful });
+        }
       }
       t += slot;
     });
     sync.timeline = events;
+    sync.expr = expr;
   }
 
   function speechEnd() {
     clearTimeout(fallbackTimer);
     visemeQueue = [];
+    pulseQueue = [];
     audioSync = null;
   }
 
@@ -316,15 +417,20 @@ export async function createAvatar3D(container) {
     // Lips round on O/U, press on P/B/M — co-articulation cues.
     morphTargets.mouthPucker =
       Math.max(morphTargets.viseme_O || 0, morphTargets.viseme_U || 0) * 0.5;
-    morphTargets.mouthPressLeft = (morphTargets.viseme_PP || 0) * 0.6;
-    morphTargets.mouthPressRight = (morphTargets.viseme_PP || 0) * 0.6;
+    morphTargets.mouthPressLeft = Math.max(
+      morphTargets.mouthPressLeft || 0, (morphTargets.viseme_PP || 0) * 0.6);
+    morphTargets.mouthPressRight = Math.max(
+      morphTargets.mouthPressRight || 0, (morphTargets.viseme_PP || 0) * 0.6);
     // Word-emphasis brow raise.
-    morphTargets.browInnerUp = performance.now() < browUntil ? 0.35 : 0;
+    if (performance.now() < browUntil) {
+      morphTargets.browInnerUp = Math.max(morphTargets.browInnerUp || 0, 0.35);
+    }
   }
 
   function applyVisemesTimed() {
     const now = performance.now();
     clearMouth();
+    applyEmotion();
     visemeQueue = visemeQueue.filter((v) => now < v.at + v.dur);
     for (const v of visemeQueue) {
       if (now >= v.at) {
@@ -332,11 +438,13 @@ export async function createAvatar3D(container) {
         setViseme(v.name, Math.sin(Math.min(1, phase) * Math.PI) * 0.9);
       }
     }
+    applyPulses();
     mouthShaping();
   }
 
   function applyVisemesAudio(sync) {
     clearMouth();
+    applyEmotion();
     if (!sync.timeline) buildTimeline(sync);
     // Live loudness, smoothed a little so the jaw doesn't flutter.
     sync.analyser.getByteTimeDomainData(sync.buf);
@@ -363,6 +471,21 @@ export async function createAvatar3D(container) {
         }
       }
     }
+    // Expression events timed against the clip: questions, exclamations,
+    // emphasis words, thinking beats.
+    if (sync.expr) {
+      const t = sync.audio.currentTime;
+      for (const p of sync.expr) {
+        if (t >= p.at && t < p.at + p.dur) {
+          const env = Math.sin(Math.min(1, (t - p.at) / p.dur) * Math.PI);
+          for (const m in p.morphs) {
+            morphTargets[m] = Math.max(morphTargets[m] || 0, p.morphs[m] * env);
+          }
+          if (p.nod && !p.fired) { p.fired = true; nodUntil = performance.now() + 280; }
+          if (p.tilt && !p.fired) { p.fired = true; tiltUntil = performance.now() + 800; }
+        }
+      }
+    }
     // The waveform always gets a vote, so lips never freeze mid-sound.
     morphTargets.jawOpen = Math.max(morphTargets.jawOpen, loud * 0.45);
     mouthShaping();
@@ -372,10 +495,7 @@ export async function createAvatar3D(container) {
   let mode = "idle";
   function setMode(next) {
     mode = next || "idle";
-    morphTargets.browInnerUp = 0;
-    morphTargets.browOuterUpLeft = 0;
-    morphTargets.browOuterUpRight = 0;
-    morphTargets.browDownLeft = 0;
+    for (const m of EMOTION_MORPHS) morphTargets[m] = 0;
     morphTargets.mouthSmileLeft = 0.12;
     morphTargets.mouthSmileRight = 0.12;
     if (mode === "listening") {
@@ -387,10 +507,9 @@ export async function createAvatar3D(container) {
     } else if (mode === "thinking") {
       morphTargets.browInnerUp = 0.2;
       morphTargets.browDownLeft = 0.3;
-    } else if (mode === "speaking") {
-      morphTargets.mouthSmileLeft = 0.15;
-      morphTargets.mouthSmileRight = 0.15;
     }
+    // "speaking" needs no preset: the per-reply emotion baseline plus timed
+    // expression pulses are applied every frame while the reply plays.
   }
 
   // ---- render loop -------------------------------------------------------
@@ -417,11 +536,14 @@ export async function createAvatar3D(container) {
       set(eyeL, -0.18, 0.12, 0);
       set(eyeR, -0.18, 0.12, 0);
     } else if (mode === "speaking") {
-      // Word-emphasis nod scheduled from speech, on top of drift.
+      // Word-emphasis nod scheduled from speech, on top of drift, plus a
+      // brief head tilt that lands on questions.
       const nodPhase = Math.max(0, nodUntil - performance.now()) / 240;
       const nod = Math.sin(nodPhase * Math.PI) * 0.045;
-      set(head, nod + driftX * 1.5, driftY * 1.5, breathe);
-      set(neck, nod * 0.5, 0, 0);
+      const tiltPhase = Math.max(0, tiltUntil - performance.now()) / 800;
+      const tilt = Math.sin(tiltPhase * Math.PI) * 0.07;
+      set(head, nod + driftX * 1.5, driftY * 1.5, breathe + tilt);
+      set(neck, nod * 0.5, 0, tilt * 0.4);
       set(eyeL, saccade.x * 0.5, saccade.y * 0.5, 0);
       set(eyeR, saccade.x * 0.5, saccade.y * 0.5, 0);
     } else {
@@ -444,5 +566,5 @@ export async function createAvatar3D(container) {
   });
 
   setMode("idle");
-  return { setMode, speechStart, speechBoundary, speechAudio, speechEnd };
+  return { setMode, setEmotion, speechStart, speechBoundary, speechAudio, speechEnd };
 }

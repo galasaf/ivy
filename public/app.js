@@ -103,9 +103,9 @@ function stopMouthAnimation() {
 // audio waveform drives the avatar's lips) and free browser voices as
 // fallback. Studio voice values look like "11labs:<voiceId>".
 const STUDIO_VOICES = [
-  { id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel — studio ★★" },
-  { id: "XrExE9yKIg1WjnnlVkGX", label: "Matilda — studio ★★" },
-  { id: "Xb7hH8MSUJpSbSDYk0k2", label: "Alice — studio ★★" },
+  { id: "pNInz6obpgDQGcFmaJgB", label: "Adam — studio ★★" },
+  { id: "TxGEqnHWrfWFTfGW9XjX", label: "Josh — studio ★★" },
+  { id: "ErXwobaYiN019PkySvjV", label: "Antoni — studio ★★" },
 ];
 
 // Rank browser voices by how human they sound. Edge's "Online (Natural)"
@@ -114,7 +114,7 @@ const STUDIO_VOICES = [
 function voiceScore(v) {
   let score = 0;
   if (/Online \(Natural\)|Natural/i.test(v.name)) score += 100;
-  if (/Aria|Jenny|Sonia|Libby|Michelle/i.test(v.name)) score += 10;
+  if (/Guy|Ryan|Eric|Andrew|Brian|Christopher|Davis|Tony/i.test(v.name)) score += 15;
   if (/^Google/i.test(v.name)) score += 50;
   if (!v.localService) score += 20; // cloud voices are consistently better
   if (v.lang === "en-US") score += 8;
@@ -203,7 +203,7 @@ async function playWithLipSync(text, blob) {
   await new Promise((resolve) => {
     audio.onended = resolve;
     audio.onerror = resolve;
-    setState("speaking", "Ivy is speaking…");
+    setState("speaking", "Max is speaking…");
     if (avatar3d) avatar3d.speechAudio(text, audio, analyser);
     startMouthAnimation();
     audio.play().catch(resolve);
@@ -256,7 +256,7 @@ function speakBrowser(text) {
       if (avatar3d) avatar3d.speechBoundary(event.charIndex);
     };
     utterance.onstart = () => {
-      setState("speaking", "Ivy is speaking…");
+      setState("speaking", "Max is speaking…");
       if (avatar3d) avatar3d.speechStart(text);
       startMouthAnimation();
     };
@@ -309,7 +309,7 @@ function listenOnce() {
 // Conversation loop
 // ---------------------------------------------------------------------------
 async function sendToAgent(transcript) {
-  setState("thinking", "Ivy is thinking…");
+  setState("thinking", "Max is thinking…");
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -519,14 +519,15 @@ for (const lesson of LESSONS) {
 }
 renderAgenda();
 
-// Pull the [STAGE:n] tag off a reply, advance the agenda, return spoken text.
+// Pull the hidden [STAGE:n][FEEL:x] tags off a reply: STAGE advances the
+// agenda, FEEL sets the avatar's facial expression for this reply. Returns
+// the clean text to speak.
 function stripStage(reply) {
-  const m = reply.match(/^\s*\[STAGE:(\d+)\]\s*/i);
-  if (m) {
-    setStage(parseInt(m[1], 10));
-    return reply.slice(m[0].length);
-  }
-  return reply;
+  const stage = reply.match(/\[STAGE:(\d+)\]/i);
+  if (stage) setStage(parseInt(stage[1], 10));
+  const feel = reply.match(/\[FEEL:([a-z]+)\]/i);
+  if (feel && avatar3d) avatar3d.setEmotion(feel[1].toLowerCase());
+  return reply.replace(/\[(STAGE|FEEL):[^\]]*\]/gi, "").trim();
 }
 
 // ---------------------------------------------------------------------------
