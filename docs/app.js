@@ -452,18 +452,37 @@ async function playWithLipSync(text, blob) {
   currentAudio = null;
 }
 
+const VOICE_KEY_HELP =
+  "Studio voices use ElevenLabs text-to-speech.\n\n" +
+  "Get a free API key at elevenlabs.io (Profile → API Keys; free tier " +
+  "includes about 10 minutes of speech per month), then paste it here " +
+  "(starts with sk_). It is stored only in this browser.\n\n" +
+  "Leave the box empty and press OK to remove a saved key.";
+
 function studioKey() {
   let key = localStorage.getItem("ivy_eleven_key");
   if (!key) {
-    key = window.prompt(
-      "Studio voices use ElevenLabs text-to-speech.\n\n" +
-        "Get a free API key at elevenlabs.io (free tier includes about 10 " +
-        "minutes of speech per month), then paste it here. It is stored only " +
-        "in this browser.",
-    );
-    if (key) localStorage.setItem("ivy_eleven_key", key.trim());
+    key = window.prompt(VOICE_KEY_HELP);
+    if (key && key.trim()) localStorage.setItem("ivy_eleven_key", key.trim());
   }
   return key ? key.trim() : null;
+}
+
+// Visible "voice key" button: set, change, or clear the ElevenLabs key anytime.
+const voiceKeyBtn = document.getElementById("voiceKeyBtn");
+if (voiceKeyBtn) {
+  voiceKeyBtn.addEventListener("click", () => {
+    const current = localStorage.getItem("ivy_eleven_key") || "";
+    const next = window.prompt(VOICE_KEY_HELP, current);
+    if (next === null) return; // cancelled
+    if (next.trim()) {
+      localStorage.setItem("ivy_eleven_key", next.trim());
+      statusEl.textContent = "Voice key saved. Pick a studio voice to hear it.";
+    } else {
+      localStorage.removeItem("ivy_eleven_key");
+      statusEl.textContent = "Voice key removed — using a free browser voice.";
+    }
+  });
 }
 
 async function fetchStudioAudio(text, voiceId) {
