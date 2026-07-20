@@ -409,8 +409,10 @@ function populateVoices() {
   const saved = localStorage.getItem("ivy_voice");
   if (saved && [...voiceSelect.options].some((o) => o.value === saved)) {
     voiceSelect.value = saved;
-  } else if (preferredVoice) {
-    voiceSelect.value = preferredVoice.name;
+  } else {
+    // Default to Adam's studio voice; ensureVoiceAccess() falls back to a
+    // free browser voice on start if no key/passphrase is available.
+    voiceSelect.value = "11labs:" + STUDIO_VOICES[0].id;
   }
 }
 
@@ -487,6 +489,30 @@ if (voiceKeyBtn) {
       statusEl.textContent = "Voice key removed — using a free browser voice.";
     }
   });
+}
+
+// Called on start when the selected voice is a studio voice. Prompts once for
+// the shared passphrase so the first line doesn't get interrupted mid-speech;
+// leaving it blank falls back to a free browser voice for this session.
+function ensureVoiceAccess() {
+  const sel = voiceSelect.value;
+  if (!sel.startsWith("11labs:")) return;
+  if (localStorage.getItem("ivy_eleven_key") || localStorage.getItem("ivy_passphrase")) return;
+  const entered = window.prompt(
+    "Enter the shared passphrase to use Max's studio voice.\n\n" +
+      "Leave this blank to use a free browser voice instead.",
+  );
+  if (entered && entered.trim()) {
+    localStorage.setItem("ivy_passphrase", entered.trim());
+    return;
+  }
+  const browserOpt = [...voiceSelect.options].find(
+    (o) => o.parentElement && o.parentElement.label === "Browser voices (free)",
+  );
+  if (browserOpt) {
+    voiceSelect.value = browserOpt.value;
+    localStorage.setItem("ivy_voice", browserOpt.value);
+  }
 }
 
 async function fetchStudioAudio(text, voiceId) {
@@ -690,6 +716,7 @@ startBtn.addEventListener("click", () => {
     showKeyOverlay();
     return;
   }
+  ensureVoiceAccess();
   running = true;
   startBtn.hidden = true;
   stopBtn.hidden = false;

@@ -167,8 +167,8 @@ function populateVoices() {
   const saved = localStorage.getItem("ivy_voice");
   if (saved && [...voiceSelect.options].some((o) => o.value === saved)) {
     voiceSelect.value = saved;
-  } else if (preferredVoice) {
-    voiceSelect.value = preferredVoice.name;
+  } else {
+    voiceSelect.value = "11labs:" + STUDIO_VOICES[0].id;
   }
 }
 
