@@ -394,10 +394,10 @@ export async function createAvatar3D(container) {
   // consonants like P/B/M and S barely at all. Uniform jaw was a big part of
   // why the mouth looked artificial.
   const VISEME_JAW = {
-    viseme_aa: 0.55, viseme_E: 0.3, viseme_I: 0.2, viseme_O: 0.45, viseme_U: 0.25,
-    viseme_PP: 0.02, viseme_FF: 0.08, viseme_DD: 0.15, viseme_kk: 0.2,
-    viseme_CH: 0.12, viseme_SS: 0.05, viseme_nn: 0.12, viseme_RR: 0.18,
-    viseme_TH: 0.14,
+    viseme_aa: 0.45, viseme_E: 0.26, viseme_I: 0.16, viseme_O: 0.38, viseme_U: 0.22,
+    viseme_PP: 0.0, viseme_FF: 0.06, viseme_DD: 0.12, viseme_kk: 0.16,
+    viseme_CH: 0.1, viseme_SS: 0.03, viseme_nn: 0.1, viseme_RR: 0.15,
+    viseme_TH: 0.12,
   };
 
   function clearMouth() {
@@ -454,7 +454,7 @@ export async function createAvatar3D(container) {
       sum += d * d;
     }
     const rms = Math.sqrt(sum / sync.buf.length);
-    sync.level += (rms - sync.level) * 0.4;
+    sync.level += (rms - sync.level) * 0.3;
     // Noise gate + gamma: quiet passages and consonant/pause gaps fall to
     // zero so the mouth actually closes instead of hanging open.
     const gated = Math.max(0, sync.level - 0.035);
@@ -489,9 +489,11 @@ export async function createAvatar3D(container) {
         }
       }
     }
-    // The waveform nudges the jaw, but only when there's real energy — so it
-    // reinforces the visemes without pinning the mouth open.
-    morphTargets.jawOpen = Math.max(morphTargets.jawOpen, loud * 0.3);
+    // The waveform never opens the mouth on its own — it only scales the jaw
+    // the visemes already opened for a vowel. So consonants, gaps, and pauses
+    // (where no viseme is active) let the mouth fully close instead of hanging
+    // open and twitching with the audio.
+    morphTargets.jawOpen = Math.min(0.45, morphTargets.jawOpen * (0.55 + loud * 0.45));
     mouthShaping();
   }
 
