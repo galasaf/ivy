@@ -350,9 +350,9 @@ export async function createAvatar3D(container) {
       const slot = (weights[i] / total) * dur;
       if (/^[A-Za-z']/.test(tok)) {
         const visemes = wordToVisemes(tok);
-        const per = (slot * 0.72) / visemes.length; // ~28% closing gap per word
+        const per = (slot * 0.78) / visemes.length; // ~22% closing gap per word
         visemes.forEach((name, j) => {
-          events.push({ name, at: t + j * per, dur: per * 1.15, word: i });
+          events.push({ name, at: t + j * per, dur: per * 1.3, word: i });
         });
         // Emphasis words get wide eyes and a nod right when they land.
         if (EMPHASIS_WORD.test(tok)) {
@@ -394,10 +394,10 @@ export async function createAvatar3D(container) {
   // consonants like P/B/M and S barely at all. Uniform jaw was a big part of
   // why the mouth looked artificial.
   const VISEME_JAW = {
-    viseme_aa: 0.45, viseme_E: 0.26, viseme_I: 0.16, viseme_O: 0.38, viseme_U: 0.22,
-    viseme_PP: 0.0, viseme_FF: 0.06, viseme_DD: 0.12, viseme_kk: 0.16,
-    viseme_CH: 0.1, viseme_SS: 0.03, viseme_nn: 0.1, viseme_RR: 0.15,
-    viseme_TH: 0.12,
+    viseme_aa: 0.7, viseme_E: 0.4, viseme_I: 0.24, viseme_O: 0.58, viseme_U: 0.32,
+    viseme_PP: 0.0, viseme_FF: 0.08, viseme_DD: 0.16, viseme_kk: 0.22,
+    viseme_CH: 0.14, viseme_SS: 0.04, viseme_nn: 0.14, viseme_RR: 0.2,
+    viseme_TH: 0.16,
   };
 
   function clearMouth() {
@@ -493,7 +493,7 @@ export async function createAvatar3D(container) {
     // the visemes already opened for a vowel. So consonants, gaps, and pauses
     // (where no viseme is active) let the mouth fully close instead of hanging
     // open and twitching with the audio.
-    morphTargets.jawOpen = Math.min(0.45, morphTargets.jawOpen * (0.55 + loud * 0.45));
+    morphTargets.jawOpen = Math.min(0.65, morphTargets.jawOpen * (0.7 + loud * 0.3));
     mouthShaping();
   }
 
