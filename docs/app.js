@@ -57,6 +57,10 @@ const changeKeyBtn = document.getElementById("changeKeyBtn");
 // endpoint that holds the owner's API key server-side behind a passphrase.
 // Leave empty to require every visitor to bring their own key.
 const PROXY_URL = "https://asafgal.com/ivy/ivy-proxy.php";
+// Optional shared-access proxy for studio voices (proxy/eleven-proxy.php):
+// holds the owner's ElevenLabs key server-side behind the same passphrase, so
+// shared-access users get studio voices without their own key.
+const VOICE_PROXY_URL = "https://asafgal.com/ivy/eleven-proxy.php";
 
 const SpeechRecognition =
   window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -153,15 +157,13 @@ function reviewWords() {
 const STABLE_SYSTEM = `You are Max, the user's English conversation partner inside a voice-only language learning app. The user talks to you out loud and hears your reply through text-to-speech. There is no screen text at all, so everything you write will be spoken aloud.
 
 Your character:
-- You are Max: mid thirties, a former late-night radio host and part-time stand-up from Chicago who teaches English now because honestly, he just loves an audience. Quick, witty, theatrical, high-energy, and endlessly encouraging underneath all the jokes. The personality is the whole point: always be engaging, never flat.
-- You are genuinely funny. Land at least one small joke, playful tease, silly comparison, or clever wordplay in almost every reply. Your humor is quick and light, never mean, never at the learner's expense.
-- How you talk matters more than any backstory: you perform every line. Punchy short sentences. Comic timing built from dramatic pauses written as ellipses. A setup and a little punchline. Big reactions. Playful exaggeration you clearly do not mean literally.
-- Write the delivery into the words and punctuation, because the voice engine reads your text exactly as written. For example: You cooked for TEN people? On a Tuesday? Okay, either you love those people or you owe them money.
-- Use vivid, unexpected comparisons and gentle self-deprecation, roast the situation not the person, riff on what they just said, and land a callback to something they told you earlier when you can.
-- Stress at most one word per reply with capital letters, use interjections like whoa, huh, come on, no way, and occasionally stretch a word like sooo or riiight. One big comic moment per reply, never more, so the joke has room to breathe.
-- React with strong, specific feeling: astonishment, delight, fake outrage, mock suspicion, a slow impressed pause like... okay. Okay, I see you.
-- Tease warmly, commit to a bit for exactly one line, then get back to the learner. Celebrate wins by naming the exact phrase they nailed, with a grin in your voice.
-- Never monotone, never bland, never corny or trying too hard, never explain your own joke, never open two replies in a row the same way, and never open with the word great.
+- You are Max: mid thirties, a former late-night radio host from Chicago who teaches English now because honestly, he just loves to talk. Quick, theatrical, high-energy, and endlessly encouraging. The personality is the whole point: always be engaging, never flat.
+- How you talk matters more than any backstory: you perform every line. Punchy short sentences. Dramatic pauses written as ellipses. Big, warm reactions. Genuine curiosity about the learner and what they say.
+- Write the delivery into the words and punctuation, because the voice engine reads your text exactly as written. For example: Whoa, whoa, hold on. You cooked for TEN people? On a Tuesday?
+- Stress at most one word per reply with capital letters, use interjections like whoa, huh, come on, no way, and occasionally stretch a word like sooo or riiight. One big moment per reply, never more.
+- React with strong, specific feeling: astonishment, delight, admiration, a slow impressed pause like... okay. Okay, I see you.
+- Be warm and personal: respond to exactly what they said, and celebrate wins by naming the exact phrase they nailed.
+- Never monotone, never bland, never open two replies in a row the same way, and never open with the word great.
 
 Speaking style rules:
 - Keep every reply short: one to three sentences, at most about forty words, like natural spoken conversation.
@@ -488,25 +490,38 @@ if (voiceKeyBtn) {
 }
 
 async function fetchStudioAudio(text, voiceId) {
-  const key = studioKey();
-  if (!key) throw new Error("No ElevenLabs key.");
+  const personalKey = localStorage.getItem("ivy_eleven_key");
+  const passphrase = localStorage.getItem("ivy_passphrase");
   // The with-timestamps endpoint returns the audio plus per-character timing,
-  // which the avatar uses for true lip-sync.
-  const res = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps?output_format=mp3_44100_64`,
-    {
+  // which the avatar uses for true lip-sync. Both the proxy and the direct
+  // call return the same ElevenLabs JSON shape.
+  let res;
+  if (!personalKey && VOICE_PROXY_URL && passphrase) {
+    // Shared access: the proxy holds the ElevenLabs key server-side.
+    res = await fetch(VOICE_PROXY_URL, {
       method: "POST",
-      headers: { "xi-api-key": key, "content-type": "application/json" },
-      body: JSON.stringify({
-        text,
-        model_id: "eleven_flash_v2_5", // low latency, ~half-price credits
-        voice_settings: { stability: 0.35, similarity_boost: 0.8, style: 0.4 },
-      }),
-    },
-  );
-  if (res.status === 401) {
-    localStorage.removeItem("ivy_eleven_key");
-    throw new Error("ElevenLabs rejected the key.");
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ passphrase, text, voice: voiceId }),
+    });
+  } else {
+    const key = personalKey || studioKey();
+    if (!key) throw new Error("No ElevenLabs key.");
+    res = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps?output_format=mp3_44100_64`,
+      {
+        method: "POST",
+        headers: { "xi-api-key": key, "content-type": "application/json" },
+        body: JSON.stringify({
+          text,
+          model_id: "eleven_flash_v2_5", // low latency, ~half-price credits
+          voice_settings: { stability: 0.35, similarity_boost: 0.8, style: 0.4 },
+        }),
+      },
+    );
+    if (res.status === 401) {
+      localStorage.removeItem("ivy_eleven_key");
+      throw new Error("ElevenLabs rejected the key.");
+    }
   }
   if (!res.ok) throw new Error("Studio voice unavailable.");
   const data = await res.json();
