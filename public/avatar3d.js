@@ -350,9 +350,9 @@ export async function createAvatar3D(container) {
       const slot = (weights[i] / total) * dur;
       if (/^[A-Za-z']/.test(tok)) {
         const visemes = wordToVisemes(tok);
-        const per = (slot * 0.82) / visemes.length; // ~18% closing gap per word
+        const per = (slot * 0.72) / visemes.length; // ~28% closing gap per word
         visemes.forEach((name, j) => {
-          events.push({ name, at: t + j * per, dur: per * 1.6, word: i });
+          events.push({ name, at: t + j * per, dur: per * 1.15, word: i });
         });
         // Emphasis words get wide eyes and a nod right when they land.
         if (EMPHASIS_WORD.test(tok)) {
@@ -454,8 +454,11 @@ export async function createAvatar3D(container) {
       sum += d * d;
     }
     const rms = Math.sqrt(sum / sync.buf.length);
-    sync.level += (rms - sync.level) * 0.35;
-    const loud = Math.min(1, sync.level * 7);
+    sync.level += (rms - sync.level) * 0.4;
+    // Noise gate + gamma: quiet passages and consonant/pause gaps fall to
+    // zero so the mouth actually closes instead of hanging open.
+    const gated = Math.max(0, sync.level - 0.035);
+    const loud = Math.min(1, Math.pow(gated * 6.5, 1.35));
 
     if (sync.timeline) {
       const t = sync.audio.currentTime;
@@ -463,7 +466,7 @@ export async function createAvatar3D(container) {
         if (t >= v.at && t < v.at + v.dur) {
           const phase = (t - v.at) / v.dur;
           const env = Math.sin(Math.min(1, phase) * Math.PI);
-          setViseme(v.name, env * (0.25 + loud * 0.85));
+          setViseme(v.name, env * (0.12 + loud * 0.9));
           if (v.word !== sync.lastWord) {
             sync.lastWord = v.word;
             punctuateWord();
@@ -486,8 +489,9 @@ export async function createAvatar3D(container) {
         }
       }
     }
-    // The waveform always gets a vote, so lips never freeze mid-sound.
-    morphTargets.jawOpen = Math.max(morphTargets.jawOpen, loud * 0.45);
+    // The waveform nudges the jaw, but only when there's real energy — so it
+    // reinforces the visemes without pinning the mouth open.
+    morphTargets.jawOpen = Math.max(morphTargets.jawOpen, loud * 0.3);
     mouthShaping();
   }
 
